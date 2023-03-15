@@ -1,7 +1,5 @@
-use std::f32::consts::PI;
-
 use bevy_ecs::prelude::Component;
-use glam::{Mat4, Quat, Vec2, Vec3};
+use glam::{Mat4, Quat, Vec3};
 
 #[derive(Clone)]
 pub struct TransformComponent {

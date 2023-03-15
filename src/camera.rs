@@ -3,6 +3,7 @@ use glam::Mat4;
 pub struct Camera {
     pub projection: Mat4,
     pub view: Mat4,
+    pub position: glam::Vec3,
 }
 
 impl Camera {
@@ -10,6 +11,7 @@ impl Camera {
         Camera {
             projection: Mat4::NAN,
             view: Mat4::NAN,
+            position: glam::Vec3::ZERO,
         }
     }
 

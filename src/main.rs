@@ -21,15 +21,11 @@
 // Vulkan 1.3, or if you want to see how to support older versions, see the original triangle
 // example.
 
-use bevy_ecs::system::{Commands, Query};
-use bytemuck::{Pod, Zeroable};
-use glam::{Quat, Vec2, Vec3};
-use std::{
-    f32::consts::PI,
-    sync::{mpsc, Arc},
-};
+use bevy_ecs::system::Commands;
+use bevy_time::Time;
+use glam::{Quat, Vec3};
+use std::sync::Arc;
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         RenderingAttachmentInfo, RenderingInfo,
@@ -62,16 +58,22 @@ use vulkano::{
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
-    event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop, EventLoopBuilder},
+    event::{ElementState, Event, VirtualKeyCode, WindowEvent},
+    event_loop::{ControlFlow, EventLoopBuilder},
     window::{Window, WindowBuilder},
 };
 
-use crate::{camera::Camera, game::Game, game_object::GameObject};
+use crate::{
+    camera::Camera,
+    game::Game,
+    game_object::GameObject,
+    model::{make_cube, Vertex},
+};
 
 mod camera;
 mod game;
 mod game_object;
+mod model;
 
 #[derive(Debug, Clone)]
 enum UserEvent {
@@ -263,7 +265,7 @@ fn main() {
                 min_image_count: surface_capabilities.min_image_count,
 
                 image_format,
-                present_mode: PresentMode::Fifo,
+                present_mode: PresentMode::Mailbox,
                 // The dimensions of the window, only used to initially setup the swapchain.
                 // NOTE:
                 // On some drivers the swapchain dimensions are specified by
@@ -301,179 +303,7 @@ fn main() {
 
     let memory_allocator = StandardMemoryAllocator::new_default(device.clone());
 
-    // We now create a buffer that will store the shape of our triangle.
-    // We use #[repr(C)] here to force rustc to not do anything funky with our data, although for this
-    // particular example, it doesn't actually change the in-memory representation.
-    #[repr(C)]
-    #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
-    struct Vertex {
-        position: [f32; 3],
-        color: [f32; 3],
-    }
     impl_vertex!(Vertex, position, color);
-
-    let vertices = [
-        // left face (white)
-        Vertex {
-            position: [-0.5, -0.5, -0.5],
-            color: [0.9, 0.9, 0.9],
-        },
-        Vertex {
-            position: [-0.5, 0.5, 0.5],
-            color: [0.9, 0.9, 0.9],
-        },
-        Vertex {
-            position: [-0.5, -0.5, 0.5],
-            color: [0.9, 0.9, 0.9],
-        },
-        Vertex {
-            position: [-0.5, -0.5, -0.5],
-            color: [0.9, 0.9, 0.9],
-        },
-        Vertex {
-            position: [-0.5, 0.5, -0.5],
-            color: [0.9, 0.9, 0.9],
-        },
-        Vertex {
-            position: [-0.5, 0.5, 0.5],
-            color: [0.9, 0.9, 0.9],
-        },
-        // right face (yellow)
-        Vertex {
-            position: [0.5, -0.5, -0.5],
-            color: [0.8, 0.8, 0.1],
-        },
-        Vertex {
-            position: [0.5, 0.5, 0.5],
-            color: [0.8, 0.8, 0.1],
-        },
-        Vertex {
-            position: [0.5, -0.5, 0.5],
-            color: [0.8, 0.8, 0.1],
-        },
-        Vertex {
-            position: [0.5, -0.5, -0.5],
-            color: [0.8, 0.8, 0.1],
-        },
-        Vertex {
-            position: [0.5, 0.5, -0.5],
-            color: [0.8, 0.8, 0.1],
-        },
-        Vertex {
-            position: [0.5, 0.5, 0.5],
-            color: [0.8, 0.8, 0.1],
-        },
-        // top face (orange, remember y axis points down)
-        Vertex {
-            position: [-0.5, -0.5, -0.5],
-            color: [0.9, 0.6, 0.1],
-        },
-        Vertex {
-            position: [0.5, -0.5, 0.5],
-            color: [0.9, 0.6, 0.1],
-        },
-        Vertex {
-            position: [-0.5, -0.5, 0.5],
-            color: [0.9, 0.6, 0.1],
-        },
-        Vertex {
-            position: [-0.5, -0.5, -0.5],
-            color: [0.9, 0.6, 0.1],
-        },
-        Vertex {
-            position: [0.5, -0.5, -0.5],
-            color: [0.9, 0.6, 0.1],
-        },
-        Vertex {
-            position: [0.5, -0.5, 0.5],
-            color: [0.9, 0.6, 0.1],
-        },
-        // bottom face (red)
-        Vertex {
-            position: [-0.5, 0.5, -0.5],
-            color: [0.8, 0.1, 0.1],
-        },
-        Vertex {
-            position: [0.5, 0.5, 0.5],
-            color: [0.8, 0.1, 0.1],
-        },
-        Vertex {
-            position: [-0.5, 0.5, 0.5],
-            color: [0.8, 0.1, 0.1],
-        },
-        Vertex {
-            position: [-0.5, 0.5, -0.5],
-            color: [0.8, 0.1, 0.1],
-        },
-        Vertex {
-            position: [0.5, 0.5, -0.5],
-            color: [0.8, 0.1, 0.1],
-        },
-        Vertex {
-            position: [0.5, 0.5, 0.5],
-            color: [0.8, 0.1, 0.1],
-        },
-        // nose face (blue)
-        Vertex {
-            position: [-0.5, -0.5, 0.5],
-            color: [0.1, 0.1, 0.8],
-        },
-        Vertex {
-            position: [0.5, 0.5, 0.5],
-            color: [0.1, 0.1, 0.8],
-        },
-        Vertex {
-            position: [-0.5, 0.5, 0.5],
-            color: [0.1, 0.1, 0.8],
-        },
-        Vertex {
-            position: [-0.5, -0.5, 0.5],
-            color: [0.1, 0.1, 0.8],
-        },
-        Vertex {
-            position: [0.5, -0.5, 0.5],
-            color: [0.1, 0.1, 0.8],
-        },
-        Vertex {
-            position: [0.5, 0.5, 0.5],
-            color: [0.1, 0.1, 0.8],
-        },
-        // tail face (green)
-        Vertex {
-            position: [-0.5, -0.5, -0.5],
-            color: [0.1, 0.8, 0.1],
-        },
-        Vertex {
-            position: [0.5, 0.5, -0.5],
-            color: [0.1, 0.8, 0.1],
-        },
-        Vertex {
-            position: [-0.5, 0.5, -0.5],
-            color: [0.1, 0.8, 0.1],
-        },
-        Vertex {
-            position: [-0.5, -0.5, -0.5],
-            color: [0.1, 0.8, 0.1],
-        },
-        Vertex {
-            position: [0.5, -0.5, -0.5],
-            color: [0.1, 0.8, 0.1],
-        },
-        Vertex {
-            position: [0.5, 0.5, -0.5],
-            color: [0.1, 0.8, 0.1],
-        },
-    ];
-    let vertex_buffer = CpuAccessibleBuffer::from_iter(
-        &memory_allocator,
-        BufferUsage {
-            vertex_buffer: true,
-            ..BufferUsage::empty()
-        },
-        false,
-        vertices,
-    )
-    .unwrap();
 
     // The next step is to create the shaders.
     //
@@ -533,7 +363,7 @@ fn main() {
         })
         // We need to indicate the layout of the vertices.
         .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
-        // The content of the vertex buffer describes a list of triangles.
+        // The content of the vertex builder describes a list of triangles._draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance)
         .input_assembly_state(InputAssemblyState::new())
         // A Vulkan shader can in theory contain multiple entry points, so we have to specify
         // which one.
@@ -562,7 +392,7 @@ fn main() {
     let mut attachment_image_views = window_size_dependent_setup(&images, &mut viewport);
 
     // Before we can start creating and recording command buffers, we need a way of allocating
-    // them. Vulkano provides a command buffer allocator, which manages raw Vulkan command pools
+    // them. Vulkano provides a command builder allocator, which manages raw Vulkan command pools_draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance)
     // underneath and provides a safe interface for them.
     let command_buffer_allocator =
         StandardCommandBufferAllocator::new(device.clone(), Default::default());
@@ -594,27 +424,47 @@ fn main() {
         let mut obj = GameObject::new();
         obj.transform.translation = Vec3::new(0.0, 0.0, -5.0);
         obj.transform.scale = Vec3::new(1.0, 1.0, 1.0);
+        obj.transform.rotation = Quat::from_scaled_axis(Vec3::new(0.0, -1.0, -1.0));
         commands.spawn(obj);
-
-        // let mut obj = GameObject::new();
-        // obj.transform.translation = Vec3::new(0.0, 0.0, -1.5);
-        // obj.transform.scale = Vec3::new(0.5, 0.5, 0.5);
-        // commands.spawn(obj);
     });
 
     let mut camera = Camera::new();
+    let mut time = Time::default();
     // camera.set_view_direction(
     //     Vec3::splat(0.0),
     //     Vec3::new(0.0, 0.0, -1.0),
     //     Vec3::new(0.0, 1.0, 0.0),
     // );
-    camera.set_view_target(
-        Vec3::new(0.0, 0.0, 2.0),
-        Vec3::new(0.0, 0.0, -5.0),
-        Vec3::new(0.0, 1.0, 0.0),
+    // camera.set_view_target(
+    //     Vec3::new(0.0, 0.0, 2.0),
+    //     Vec3::new(0.0, 0.0, -5.0),
+    //     Vec3::new(0.0, 1.0, 0.0),
+    // );
+
+    let mut w_is_pressed = false;
+    let mut s_is_pressed = false;
+    let mut a_is_pressed = false;
+    let mut d_is_pressed = false;
+
+    let model = make_cube();
+    let vertex_device_buffer = model.staging_vertex_buffer(
+        &memory_allocator,
+        &device,
+        &command_buffer_allocator,
+        &queue,
     );
+    let maybe_index_device_buffer = model.staging_index_buffer(
+        &memory_allocator,
+        &device,
+        &command_buffer_allocator,
+        &queue,
+    );
+    let vertex_len = model.vertices.len();
+    let maybe_indices_len = model.indices.map(|x| x.len());
 
     event_loop.run(move |event, _, control_flow| {
+        time.update();
+
         match event {
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
@@ -628,6 +478,45 @@ fn main() {
             } => {
                 recreate_swapchain = true;
             }
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::KeyboardInput { input, .. } => {
+                    if let Some(code) = input.virtual_keycode {
+                        match code {
+                            VirtualKeyCode::W => {
+                                if input.state == ElementState::Pressed {
+                                    w_is_pressed = true;
+                                } else {
+                                    w_is_pressed = false;
+                                }
+                            }
+                            VirtualKeyCode::S => {
+                                if input.state == ElementState::Pressed {
+                                    s_is_pressed = true;
+                                } else {
+                                    s_is_pressed = false;
+                                }
+                            }
+                            VirtualKeyCode::A => {
+                                if input.state == ElementState::Pressed {
+                                    a_is_pressed = true;
+                                } else {
+                                    a_is_pressed = false;
+                                }
+                            }
+                            VirtualKeyCode::D => {
+                                if input.state == ElementState::Pressed {
+                                    d_is_pressed = true;
+                                } else {
+                                    d_is_pressed = false;
+                                }
+                            }
+                            _ => (),
+                        }
+                    }
+                    println!("{:?}", input);
+                }
+                _ => (),
+            },
             Event::RedrawEventsCleared => {
                 // It is important to call this function from time to time, otherwise resources will keep
                 // accumulating and you will eventually reach an out of memory error.
@@ -696,21 +585,41 @@ fn main() {
                 // );
                 camera.set_perspective_projection(50.0_f32.to_radians(), aspect_ratio, 0.1, 1000.0);
 
-                // In order to draw, we have to build a *command buffer*. The command buffer object holds
+                // In order to draw, we have to build a *command builder*. The command builder object holds_draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance)
                 // the list of commands that are going to be executed.
                 //
-                // Building a command buffer is an expensive operation (usually a few hundred
+                // Building a command builder is an expensive operation (usually a few hundred_draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance)
                 // microseconds), but it is known to be a hot path in the driver and is expected to be
                 // optimized.
                 //
-                // Note that we have to pass a queue family when we create the command buffer. The command
-                // buffer will only be executable on that given queue family.
+                // Note that we have to pass a queue family when we create the command builder. The command_draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance)
+                // builder will only be executable on that given queue family._draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance)
                 let mut builder = AutoCommandBufferBuilder::primary(
                     &command_buffer_allocator,
                     queue.queue_family_index(),
                     CommandBufferUsage::OneTimeSubmit,
                 )
                 .unwrap();
+
+                // builder
+                //     .copy_buffer(CopyBufferInfo::buffers(
+                //         temp_vertex_buffer.clone(),
+                //         vertex_device_buffer,
+                //     ))
+                //     .unwrap();
+
+                // let mut indices_count: Option<u32> = None;
+                // if let Some((temp_index_buffer, index_device_buffer, indices_len)) =
+                //     maybe_staging_index_buffer
+                // {
+                //     indices_count = Some(indices_len);
+                //     builder
+                //         .copy_buffer(CopyBufferInfo::buffers(
+                //             temp_index_buffer,
+                //             index_device_buffer,
+                //         ))
+                //         .unwrap();
+                // }
 
                 builder
                     // Before we can draw, we have to *enter a render pass*. We specify which
@@ -731,7 +640,7 @@ fn main() {
                             //
                             // Only attachments that have `LoadOp::Clear` are provided with
                             // clear values, any others should use `None` as the clear value.
-                            clear_value: Some([0.0, 0.0, 0.0, 1.0].into()),
+                            clear_value: Some([0.1, 0.1, 0.1, 1.0].into()),
                             ..RenderingAttachmentInfo::image_view(
                                 // We specify image view corresponding to the currently acquired
                                 // swapchain image, to use for this attachment.
@@ -747,18 +656,39 @@ fn main() {
                     // Since we used an `EmptyPipeline` object, the objects have to be `()`.
                     .set_viewport(0, [viewport.clone()])
                     .bind_pipeline_graphics(pipeline.clone())
-                    .bind_vertex_buffers(0, vertex_buffer.clone());
+                    .bind_vertex_buffers(0, vertex_device_buffer.clone());
+
+                if let Some(index_device_buffer) = maybe_index_device_buffer.clone() {
+                    builder.bind_index_buffer(index_device_buffer);
+                }
 
                 game.run();
 
+                if w_is_pressed {
+                    camera.position.z -= 0.1;
+                }
+                if s_is_pressed {
+                    camera.position.z += 0.1;
+                }
+                if a_is_pressed {
+                    camera.position.x -= 0.1;
+                }
+                if d_is_pressed {
+                    camera.position.x += 0.1;
+                }
+
+                camera.set_view_direction(
+                    camera.position,
+                    Vec3::new(0.0, 0.0, -1.0),
+                    Vec3::new(0.0, 1.0, 0.0),
+                );
+
                 let projection_view = camera.projection * camera.view;
 
-                for mut obj in &mut game
-                    .world()
-                    .query::<&mut GameObject>()
-                    .iter_mut(game.world())
-                {
-                    obj.transform.rotation *= Quat::from_axis_angle(Vec3::new(1.0, 1.0, 0.0), 0.01);
+                for obj in game.world().query::<&GameObject>().iter(game.world()) {
+                    // obj.transform.rotation += Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.01);
+                    // obj.transform.rotation.x += ;
+                    // obj.transform.rotation.y += time.delta_seconds() * 4.0;
 
                     let push_constants = vs::ty::Push {
                         color: obj.color.into(),
@@ -766,7 +696,13 @@ fn main() {
                     };
 
                     builder.push_constants(pipeline.layout().clone(), 0, push_constants);
-                    builder.draw(vertex_buffer.len() as u32, 1, 0, 0).unwrap();
+                    if let Some(indices_len) = maybe_indices_len {
+                        builder
+                            .draw_indexed(indices_len as u32, 1, 0, 0, 0)
+                            .unwrap();
+                    } else {
+                        builder.draw(vertex_len as u32, 1, 0, 0).unwrap();
+                    }
                 }
 
                 builder
@@ -774,7 +710,7 @@ fn main() {
                     .end_rendering()
                     .unwrap();
 
-                // Finish building the command buffer by calling `build`.
+                // Finish building the command builder by calling `build`._draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance)
                 let command_buffer = builder.build().unwrap();
 
                 let future = previous_frame_end
@@ -788,7 +724,7 @@ fn main() {
                     //
                     // This function does not actually present the image immediately. Instead it submits a
                     // present command at the end of the queue. This means that it will only be presented once
-                    // the GPU has finished executing the command buffer that draws the triangle.
+                    // the GPU has finished executing the command builder that draws the triangle._draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance)
                     .then_swapchain_present(
                         queue.clone(),
                         SwapchainPresentInfo::swapchain_image_index(swapchain.clone(), image_index),

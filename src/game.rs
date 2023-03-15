@@ -17,7 +17,7 @@ pub enum CoreSchedule {
 
 impl Game {
     pub fn new() -> Game {
-        let world = World::new();
+        let mut world = World::new();
         let startup_schedule = Schedule::default();
         let main_schedule = Schedule::default();
 
