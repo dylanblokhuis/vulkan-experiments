@@ -1,19 +1,34 @@
 use std::f32::consts::PI;
 
 use bevy_ecs::prelude::Component;
-use glam::{Vec2, Vec3};
+use glam::{Mat4, Quat, Vec2, Vec3};
 
 #[derive(Clone)]
-pub struct Transform2dComponent {
-    pub translation: Vec2,
-    pub scale: Vec2,
-    pub rotation: f32,
+pub struct TransformComponent {
+    pub translation: Vec3,
+    pub scale: Vec3,
+    pub rotation: Quat,
+}
+
+impl TransformComponent {
+    pub fn new() -> TransformComponent {
+        TransformComponent {
+            translation: Vec3::ZERO,
+            scale: Vec3::ONE,
+            rotation: Quat::IDENTITY,
+        }
+    }
+
+    pub fn mat4(&self) -> Mat4 {
+        // glam::Mat4::from_translation(self.translation)
+        glam::Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation)
+    }
 }
 
 #[derive(Component, Clone)]
 pub struct GameObject {
     pub color: Vec3,
-    pub transform: Transform2dComponent,
+    pub transform: TransformComponent,
 }
 
 // static mut LATEST_ID: u32 = 0;
@@ -21,12 +36,8 @@ pub struct GameObject {
 impl GameObject {
     pub fn new() -> GameObject {
         GameObject {
-            color: Vec3::new(1.0, 0.8, 1.0),
-            transform: Transform2dComponent {
-                translation: Vec2::new(0.4, 0.0),
-                scale: Vec2::new(2.0, 0.5),
-                rotation: 0.25 * PI,
-            },
+            color: Vec3::new(1.0, 1.0, 1.0),
+            transform: TransformComponent::new(),
         }
     }
 }

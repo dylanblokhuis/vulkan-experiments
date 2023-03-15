@@ -23,7 +23,7 @@
 
 use bevy_ecs::system::{Commands, Query};
 use bytemuck::{Pod, Zeroable};
-use glam::Vec2;
+use glam::{Quat, Vec2, Vec3};
 use std::{
     f32::consts::PI,
     sync::{mpsc, Arc},
@@ -67,11 +67,11 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use crate::{game::Game, game_object::GameObject};
+use crate::{camera::Camera, game::Game, game_object::GameObject};
 
+mod camera;
 mod game;
 mod game_object;
-mod renderer;
 
 #[derive(Debug, Clone)]
 enum UserEvent {
@@ -307,23 +307,161 @@ fn main() {
     #[repr(C)]
     #[derive(Clone, Copy, Debug, Default, Zeroable, Pod)]
     struct Vertex {
-        position: [f32; 2],
+        position: [f32; 3],
         color: [f32; 3],
     }
     impl_vertex!(Vertex, position, color);
 
     let vertices = [
+        // left face (white)
         Vertex {
-            position: [0.0, -0.5],
-            color: [1.0, 0.0, 0.0],
+            position: [-0.5, -0.5, -0.5],
+            color: [0.9, 0.9, 0.9],
         },
         Vertex {
-            position: [0.5, 0.5],
-            color: [0.0, 1.0, 0.0],
+            position: [-0.5, 0.5, 0.5],
+            color: [0.9, 0.9, 0.9],
         },
         Vertex {
-            position: [-0.5, 0.5],
-            color: [0.0, 0.0, 1.0],
+            position: [-0.5, -0.5, 0.5],
+            color: [0.9, 0.9, 0.9],
+        },
+        Vertex {
+            position: [-0.5, -0.5, -0.5],
+            color: [0.9, 0.9, 0.9],
+        },
+        Vertex {
+            position: [-0.5, 0.5, -0.5],
+            color: [0.9, 0.9, 0.9],
+        },
+        Vertex {
+            position: [-0.5, 0.5, 0.5],
+            color: [0.9, 0.9, 0.9],
+        },
+        // right face (yellow)
+        Vertex {
+            position: [0.5, -0.5, -0.5],
+            color: [0.8, 0.8, 0.1],
+        },
+        Vertex {
+            position: [0.5, 0.5, 0.5],
+            color: [0.8, 0.8, 0.1],
+        },
+        Vertex {
+            position: [0.5, -0.5, 0.5],
+            color: [0.8, 0.8, 0.1],
+        },
+        Vertex {
+            position: [0.5, -0.5, -0.5],
+            color: [0.8, 0.8, 0.1],
+        },
+        Vertex {
+            position: [0.5, 0.5, -0.5],
+            color: [0.8, 0.8, 0.1],
+        },
+        Vertex {
+            position: [0.5, 0.5, 0.5],
+            color: [0.8, 0.8, 0.1],
+        },
+        // top face (orange, remember y axis points down)
+        Vertex {
+            position: [-0.5, -0.5, -0.5],
+            color: [0.9, 0.6, 0.1],
+        },
+        Vertex {
+            position: [0.5, -0.5, 0.5],
+            color: [0.9, 0.6, 0.1],
+        },
+        Vertex {
+            position: [-0.5, -0.5, 0.5],
+            color: [0.9, 0.6, 0.1],
+        },
+        Vertex {
+            position: [-0.5, -0.5, -0.5],
+            color: [0.9, 0.6, 0.1],
+        },
+        Vertex {
+            position: [0.5, -0.5, -0.5],
+            color: [0.9, 0.6, 0.1],
+        },
+        Vertex {
+            position: [0.5, -0.5, 0.5],
+            color: [0.9, 0.6, 0.1],
+        },
+        // bottom face (red)
+        Vertex {
+            position: [-0.5, 0.5, -0.5],
+            color: [0.8, 0.1, 0.1],
+        },
+        Vertex {
+            position: [0.5, 0.5, 0.5],
+            color: [0.8, 0.1, 0.1],
+        },
+        Vertex {
+            position: [-0.5, 0.5, 0.5],
+            color: [0.8, 0.1, 0.1],
+        },
+        Vertex {
+            position: [-0.5, 0.5, -0.5],
+            color: [0.8, 0.1, 0.1],
+        },
+        Vertex {
+            position: [0.5, 0.5, -0.5],
+            color: [0.8, 0.1, 0.1],
+        },
+        Vertex {
+            position: [0.5, 0.5, 0.5],
+            color: [0.8, 0.1, 0.1],
+        },
+        // nose face (blue)
+        Vertex {
+            position: [-0.5, -0.5, 0.5],
+            color: [0.1, 0.1, 0.8],
+        },
+        Vertex {
+            position: [0.5, 0.5, 0.5],
+            color: [0.1, 0.1, 0.8],
+        },
+        Vertex {
+            position: [-0.5, 0.5, 0.5],
+            color: [0.1, 0.1, 0.8],
+        },
+        Vertex {
+            position: [-0.5, -0.5, 0.5],
+            color: [0.1, 0.1, 0.8],
+        },
+        Vertex {
+            position: [0.5, -0.5, 0.5],
+            color: [0.1, 0.1, 0.8],
+        },
+        Vertex {
+            position: [0.5, 0.5, 0.5],
+            color: [0.1, 0.1, 0.8],
+        },
+        // tail face (green)
+        Vertex {
+            position: [-0.5, -0.5, -0.5],
+            color: [0.1, 0.8, 0.1],
+        },
+        Vertex {
+            position: [0.5, 0.5, -0.5],
+            color: [0.1, 0.8, 0.1],
+        },
+        Vertex {
+            position: [-0.5, 0.5, -0.5],
+            color: [0.1, 0.8, 0.1],
+        },
+        Vertex {
+            position: [-0.5, -0.5, -0.5],
+            color: [0.1, 0.8, 0.1],
+        },
+        Vertex {
+            position: [0.5, -0.5, -0.5],
+            color: [0.1, 0.8, 0.1],
+        },
+        Vertex {
+            position: [0.5, 0.5, -0.5],
+            color: [0.1, 0.8, 0.1],
         },
     ];
     let vertex_buffer = CpuAccessibleBuffer::from_iter(
@@ -360,6 +498,7 @@ fn main() {
             path: "src/shader.vert",
             types_meta: {
                 use bytemuck::{Pod, Zeroable};
+
                 #[derive(Clone, Copy, Pod, Zeroable)]
             }
         }
@@ -452,8 +591,28 @@ fn main() {
     let mut game = Game::new();
     // spawn stuff
     game.add_startup_system(|mut commands: Commands| {
-        commands.spawn(GameObject::new());
+        let mut obj = GameObject::new();
+        obj.transform.translation = Vec3::new(0.0, 0.0, -5.0);
+        obj.transform.scale = Vec3::new(1.0, 1.0, 1.0);
+        commands.spawn(obj);
+
+        // let mut obj = GameObject::new();
+        // obj.transform.translation = Vec3::new(0.0, 0.0, -1.5);
+        // obj.transform.scale = Vec3::new(0.5, 0.5, 0.5);
+        // commands.spawn(obj);
     });
+
+    let mut camera = Camera::new();
+    // camera.set_view_direction(
+    //     Vec3::splat(0.0),
+    //     Vec3::new(0.0, 0.0, -1.0),
+    //     Vec3::new(0.0, 1.0, 0.0),
+    // );
+    camera.set_view_target(
+        Vec3::new(0.0, 0.0, 2.0),
+        Vec3::new(0.0, 0.0, -5.0),
+        Vec3::new(0.0, 1.0, 0.0),
+    );
 
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -526,6 +685,17 @@ fn main() {
                     recreate_swapchain = true;
                 }
 
+                let aspect_ratio = viewport.dimensions[0] / viewport.dimensions[1];
+                // camera.set_orthographic_projection(
+                //     -aspect_ratio,
+                //     aspect_ratio,
+                //     -1.0,
+                //     1.0,
+                //     -1.0,
+                //     1.0,
+                // );
+                camera.set_perspective_projection(50.0_f32.to_radians(), aspect_ratio, 0.1, 1000.0);
+
                 // In order to draw, we have to build a *command buffer*. The command buffer object holds
                 // the list of commands that are going to be executed.
                 //
@@ -581,30 +751,18 @@ fn main() {
 
                 game.run();
 
+                let projection_view = camera.projection * camera.view;
+
                 for mut obj in &mut game
                     .world()
                     .query::<&mut GameObject>()
                     .iter_mut(game.world())
                 {
-                    // obj.transform.rotation += 0.01 * PI;
-                    // obj.transform.scale.x += 0.001;
-
-                    let s = obj.transform.rotation.sin();
-                    let c = obj.transform.rotation.cos();
-                    let rotation = glam::Mat2::from_cols(Vec2::new(c, s), Vec2::new(-s, c));
+                    obj.transform.rotation *= Quat::from_axis_angle(Vec3::new(1.0, 1.0, 0.0), 0.01);
 
                     let push_constants = vs::ty::Push {
-                        offset: obj.transform.translation.into(),
                         color: obj.color.into(),
-                        transform: (rotation
-                            * glam::Mat2::from_diagonal(glam::Vec2::new(1.0, 1.0)).mul_mat2(
-                                &glam::Mat2::from_cols(
-                                    Vec2::new(obj.transform.scale.x, 0.0),
-                                    Vec2::new(0.0, obj.transform.scale.y),
-                                ),
-                            ))
-                        .to_cols_array_2d(),
-                        _dummy0: Default::default(),
+                        transform: (projection_view * obj.transform.mat4()).to_cols_array_2d(),
                     };
 
                     builder.push_constants(pipeline.layout().clone(), 0, push_constants);
