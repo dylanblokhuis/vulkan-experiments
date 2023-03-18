@@ -1,4 +1,4 @@
-use bevy_ecs::system::{Commands, Query, Res};
+use bevy_ecs::system::{Commands, Query, Res, ResMut};
 use bevy_time::Time;
 use glam::Vec3;
 use model::ModelVertex;
@@ -43,14 +43,14 @@ use vulkano::{
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
-    event::{Event, VirtualKeyCode, WindowEvent},
+    event::{Event, MouseScrollDelta, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
 
 use crate::{
     camera::Camera,
-    game::{Game, Keycode},
+    game::{Game, Keycode, MouseWheelDelta},
     game_object::GameObject,
     model::Model,
 };
@@ -273,6 +273,30 @@ fn main() {
 
         camera.position = Vec3::ZERO + Vec3::new(x, y, z);
     });
+    game.add_system(
+        |mut mouse_wheel: ResMut<MouseWheelDelta>, mut camera_q: Query<&mut Camera>| {
+            let delta = mouse_wheel.delta;
+
+            if let Some(delta) = delta {
+                let mut camera = camera_q.single_mut();
+
+                let mouse_camera_increment = 0.2;
+
+                match delta {
+                    MouseScrollDelta::LineDelta(_, y) => {
+                        if y < 0.0 {
+                            camera.radius += mouse_camera_increment;
+                        } else {
+                            camera.radius -= mouse_camera_increment;
+                        }
+                    }
+                    MouseScrollDelta::PixelDelta(_) => {}
+                }
+            }
+
+            mouse_wheel.delta = None;
+        },
+    );
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -292,6 +316,12 @@ fn main() {
             ..
         } => {
             game.handle_keyboard_events(input);
+        }
+        Event::WindowEvent {
+            event: WindowEvent::MouseWheel { delta, phase, .. },
+            ..
+        } => {
+            game.handle_mouse_wheel_events(delta);
         }
         Event::RedrawEventsCleared => {
             let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();

@@ -22,8 +22,8 @@ impl Camera {
             near: 0.1,
             far: 1000.0,
             radius: 5.0,
-            x_angle: 8.5,
-            y_angle: 0.66,
+            x_angle: 3.19,
+            y_angle: 0.109,
         }
     }
 

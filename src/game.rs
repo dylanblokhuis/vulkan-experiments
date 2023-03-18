@@ -6,7 +6,7 @@ use bevy_ecs::{
     world::World,
 };
 use bevy_time::Time;
-use winit::event::{ElementState, KeyboardInput, VirtualKeyCode};
+use winit::event::{ElementState, KeyboardInput, MouseScrollDelta, TouchPhase, VirtualKeyCode};
 
 pub struct Game {
     world: World,
@@ -25,11 +25,17 @@ pub struct Keycode {
     pub keycode: Option<VirtualKeyCode>,
 }
 
+#[derive(Resource, Default)]
+pub struct MouseWheelDelta {
+    pub delta: Option<MouseScrollDelta>,
+}
+
 impl Game {
     pub fn new() -> Game {
         let mut world = World::new();
         world.insert_resource(Keycode::default());
         world.insert_resource(Time::default());
+        world.insert_resource(MouseWheelDelta::default());
 
         let startup_schedule = Schedule::default();
         let main_schedule = Schedule::default();
@@ -56,6 +62,20 @@ impl Game {
         }
     }
 
+    pub fn handle_mouse_wheel_events(&mut self, delta: MouseScrollDelta) {
+        match delta {
+            MouseScrollDelta::LineDelta(x, y) => {
+                self.world.insert_resource(MouseWheelDelta {
+                    delta: Some(MouseScrollDelta::LineDelta(x, y)),
+                });
+            }
+            MouseScrollDelta::PixelDelta(pos) => {
+                self.world.insert_resource(MouseWheelDelta {
+                    delta: Some(MouseScrollDelta::PixelDelta(pos)),
+                });
+            }
+        }
+    }
     pub fn add_startup_system<M>(&mut self, system: impl IntoSystemConfig<M>) {
         self.startup_schedule.add_system(system);
         self.startup_schedule.run(&mut self.world);
