@@ -1,7 +1,7 @@
 use bevy_ecs::system::{Commands, Query};
-use examples::{Color, Normal, Position, INDICES, NORMALS, POSITIONS};
-use glam::{Mat3, Mat4, Quat, Vec3};
-use std::{sync::Arc, time::Instant};
+use glam::{Mat3, Mat4, Quat, Vec3, Vec4};
+use model::ModelVertex;
+use std::{collections::HashMap, sync::Arc, time::Instant};
 use vulkano::{
     buffer::{
         allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
@@ -16,7 +16,7 @@ use vulkano::{
     },
     device::{
         physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned,
-        QueueCreateInfo, QueueFlags,
+        Features, QueueCreateInfo, QueueFlags,
     },
     format::Format,
     image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
@@ -47,12 +47,14 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use crate::{camera::Camera, examples::COLORS, game::Game, game_object::GameObject};
+use crate::{camera::Camera, game::Game, game_object::GameObject, model::Model};
 
 mod camera;
-mod examples;
 mod game;
 mod game_object;
+mod model;
+
+type ModelHandle = &'static str;
 
 fn main() {
     // The start of this example is exactly the same as `triangle`. You should read the `triangle`
@@ -159,43 +161,24 @@ fn main() {
 
     let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
-    let vertex_buffer = Buffer::from_iter(
-        &memory_allocator,
-        BufferAllocateInfo {
-            buffer_usage: BufferUsage::VERTEX_BUFFER,
-            ..Default::default()
-        },
-        POSITIONS,
-    )
-    .unwrap();
-    let normals_buffer = Buffer::from_iter(
-        &memory_allocator,
-        BufferAllocateInfo {
-            buffer_usage: BufferUsage::VERTEX_BUFFER,
-            ..Default::default()
-        },
-        NORMALS,
-    )
-    .unwrap();
-    let colors_buffer = Buffer::from_iter(
-        &memory_allocator,
-        BufferAllocateInfo {
-            buffer_usage: BufferUsage::VERTEX_BUFFER,
-            ..Default::default()
-        },
-        COLORS,
-    )
-    .unwrap();
-    let index_buffer = Buffer::from_iter(
-        &memory_allocator,
-        BufferAllocateInfo {
-            buffer_usage: BufferUsage::INDEX_BUFFER,
-            ..Default::default()
-        },
-        INDICES,
-    )
-    .unwrap();
-
+    // let vertex_buffer = Buffer::from_iter(
+    //     &memory_allocator,
+    //     BufferAllocateInfo {
+    //         buffer_usage: BufferUsage::VERTEX_BUFFER,
+    //         ..Default::default()
+    //     },
+    //     model.vertices,
+    // )
+    // .unwrap();
+    // let index_buffer = Buffer::from_iter(
+    //     &memory_allocator,
+    //     BufferAllocateInfo {
+    //         buffer_usage: BufferUsage::INDEX_BUFFER,
+    //         ..Default::default()
+    //     },
+    //     model.indices.unwrap(),
+    // )
+    // .unwrap();
     let uniform_buffer = SubbufferAllocator::new(
         memory_allocator.clone(),
         SubbufferAllocatorCreateInfo {
@@ -242,18 +225,42 @@ fn main() {
     let mut camera = Camera::new();
     camera.set_view_direction(
         // position camera behind, so the objects move Z+ forward, Y+ up, X+ right
-        Vec3::new(0.3, 0.3, -3.0),
+        Vec3::new(0.0, 0.0, -3.0),
         Vec3::new(0.0, 0.0, 0.0),
         Vec3::new(0.0, -1.0, 0.0),
     );
 
     let mut game = Game::new();
 
+    let mut assets = HashMap::<ModelHandle, Model>::new();
+    let teapot_handle = "assets/teapot.obj";
+    let quad_handle = "assets/quad.obj";
+    assets.insert(
+        teapot_handle,
+        Model::from_obj_path(&memory_allocator, teapot_handle),
+    );
+    assets.insert(
+        quad_handle,
+        Model::from_obj_path(&memory_allocator, quad_handle),
+    );
+
     game.add_startup_system(|mut commands: Commands| {
         let mut obj = GameObject::new();
-        obj.transform.translation = Vec3::new(0.0, 0.0, 0.0);
-        obj.transform.scale = Vec3::splat(0.01);
-        // obj.transform.rotation = Quat::from_scaled_axis(Vec3::new(0.0, 0.0, 0.0));
+        obj.transform.translation = Vec3::new(-0.7, -0.3, 0.0);
+        obj.transform.scale = Vec3::splat(0.2);
+        obj.model = Some(teapot_handle);
+        commands.spawn(obj);
+
+        let mut obj = GameObject::new();
+        obj.transform.translation = Vec3::new(0.7, -0.3, 0.0);
+        obj.transform.scale = Vec3::splat(0.2);
+        obj.model = Some(teapot_handle);
+        commands.spawn(obj);
+
+        let mut obj = GameObject::new();
+        obj.transform.translation = Vec3::new(0.0, -0.5, 0.0);
+        obj.transform.scale = Vec3::new(3.0, 1.0, 3.0);
+        obj.model = Some(quad_handle);
         commands.spawn(obj);
     });
     // game.add_system(|mut objs: Query<&mut GameObject>| {
@@ -316,8 +323,10 @@ fn main() {
                 let projection_view = camera.projection * camera.view;
 
                 let uniform_data = vs::Data {
-                    directionToLight: [0.0, 0.0, -1.0],
-                    projectionViewMatrix: projection_view.to_cols_array_2d(),
+                    projectionView: projection_view.to_cols_array_2d(),
+                    ambientLightColor: [1.0, 1.0, 1.0, 0.2],
+                    lightPosition: Vec3::splat(-1.0).to_array().into(),
+                    lightColor: [1.0, 1.0, 1.0, 1.0],
                 };
 
                 let subbuffer = uniform_buffer.allocate_sized().unwrap();
@@ -372,16 +381,7 @@ fn main() {
                     pipeline.layout().clone(),
                     0,
                     set,
-                )
-                .bind_vertex_buffers(
-                    0,
-                    (
-                        vertex_buffer.clone(),
-                        normals_buffer.clone(),
-                        colors_buffer.clone(),
-                    ),
-                )
-                .bind_index_buffer(index_buffer.clone());
+                );
 
             game.run();
 
@@ -392,14 +392,27 @@ fn main() {
                     normalMatrix: obj.transform.normal_matrix().to_cols_array_2d(),
                 };
 
-                builder.push_constants(pipeline.layout().clone(), 0, push_constants);
+                let model_handle = if let Some(model_handle) = obj.model {
+                    model_handle
+                } else {
+                    continue;
+                };
+
+                let model = assets.get(model_handle).unwrap();
+                // this should be moved to handles
+                let vertex_buffer = &model.vertex_buffer;
+                let index_buffer = &model.index_buffer.to_owned().unwrap();
+
+                builder
+                    .bind_vertex_buffers(0, vertex_buffer.clone())
+                    .bind_index_buffer(index_buffer.clone())
+                    .push_constants(pipeline.layout().clone(), 0, push_constants);
+                builder
+                    .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
+                    .unwrap();
             }
 
-            builder
-                .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
-                .unwrap()
-                .end_render_pass()
-                .unwrap();
+            builder.end_render_pass().unwrap();
             let command_buffer = builder.build().unwrap();
 
             let future = previous_frame_end
@@ -467,11 +480,7 @@ fn window_size_dependent_setup(
     // driver to optimize things, at the cost of slower window resizes.
     // https://computergraphics.stackexchange.com/questions/5742/vulkan-best-way-of-updating-pipeline-viewport
     let pipeline = GraphicsPipeline::start()
-        .vertex_input_state([
-            Position::per_vertex(),
-            Normal::per_vertex(),
-            Color::per_vertex(),
-        ])
+        .vertex_input_state(ModelVertex::per_vertex())
         .vertex_shader(vs.entry_point("main").unwrap(), ())
         .input_assembly_state(InputAssemblyState::new())
         .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([

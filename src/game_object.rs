@@ -1,6 +1,8 @@
 use bevy_ecs::prelude::Component;
 use glam::{Mat4, Quat, Vec3};
 
+use crate::ModelHandle;
+
 #[derive(Clone)]
 pub struct TransformComponent {
     pub translation: Vec3,
@@ -31,6 +33,7 @@ impl TransformComponent {
 pub struct GameObject {
     pub color: Vec3,
     pub transform: TransformComponent,
+    pub model: Option<ModelHandle>,
 }
 
 // static mut LATEST_ID: u32 = 0;
@@ -40,6 +43,7 @@ impl GameObject {
         GameObject {
             color: Vec3::new(1.0, 1.0, 1.0),
             transform: TransformComponent::new(),
+            model: None,
         }
     }
 }

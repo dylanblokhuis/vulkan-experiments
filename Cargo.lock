@@ -1483,7 +1483,6 @@ version = "0.1.0"
 dependencies = [
  "bevy_ecs",
  "bevy_time",
- "bytemuck",
  "crossbeam",
  "glam",
  "obj-rs",
