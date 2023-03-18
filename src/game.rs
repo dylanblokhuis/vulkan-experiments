@@ -1,7 +1,7 @@
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 use bevy_ecs::{
-    schedule::{IntoSystemConfig, Schedule, ScheduleLabel},
+    schedule::{IntoSystemConfig, Schedule},
     system::Resource,
     world::World,
 };
@@ -14,12 +14,6 @@ pub struct Game {
     world: World,
     startup_schedule: Schedule,
     main_schedule: Schedule,
-}
-
-#[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
-pub enum CoreSchedule {
-    Startup,
-    Main,
 }
 
 #[derive(Resource, Default)]

@@ -29,7 +29,7 @@ use vulkano::{
 use crate::{
     camera::Camera,
     game::{Assets, Game},
-    game_object::GameObject,
+    game_object::{GameObject, PointLight},
     model::ModelVertex,
     render_ctx::RenderContext,
 };
@@ -113,10 +113,26 @@ impl RenderContext for WorldRenderer {
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
         descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     ) {
-        let mut camera = game.world().query::<&mut Camera>().single_mut(game.world());
+        let ubo_lights = game
+            .world()
+            .query::<&PointLight>()
+            .iter(game.world())
+            .map(|light| {
+                let position = light.transform.translation;
+                let color = light.color;
+                world_vs::PointLight {
+                    position: [position.x, position.y, position.z, 1.0],
+                    color: [color.x, color.y, color.z, 1.0],
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let ubo_lights_array: [world_vs::PointLight; 3] = ubo_lights.as_slice().try_into().unwrap();
+
         let uniform_buffer_subbuffer = {
             let aspect_ratio =
                 swapchain.image_extent()[0] as f32 / swapchain.image_extent()[1] as f32;
+            let camera = game.world().query::<&Camera>().single(game.world());
 
             let uniform_data = world_vs::Data {
                 projection: camera
@@ -125,9 +141,12 @@ impl RenderContext for WorldRenderer {
                 view: camera
                     .calc_view_direction(Vec3::new(0.0, -1.0, 0.0))
                     .to_cols_array_2d(),
-                ambientLightColor: [1.0, 1.0, 1.0, 0.2],
-                lightPosition: Vec3::new(-1.0, 1.0, -1.0).to_array().into(),
-                lightColor: [1.0, 1.0, 1.0, 1.0],
+                inverseView: camera
+                    .calc_view_direction_inverse(Vec3::new(0.0, -1.0, 0.0))
+                    .to_cols_array_2d(),
+                ambientLightColor: [1.0, 1.0, 1.0, 0.02], // w is intensity
+                numLights: ubo_lights.len() as i32,
+                pointLights: ubo_lights_array,
             };
 
             let subbuffer = self.uniform_buffer.allocate_sized().unwrap();
@@ -175,8 +194,7 @@ impl RenderContext for WorldRenderer {
             builder
                 .bind_vertex_buffers(0, vertex_buffer.clone())
                 .bind_index_buffer(index_buffer.clone())
-                .push_constants(self.pipeline.layout().clone(), 0, push_constants);
-            builder
+                .push_constants(self.pipeline.layout().clone(), 0, push_constants)
                 .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
                 .unwrap();
         }

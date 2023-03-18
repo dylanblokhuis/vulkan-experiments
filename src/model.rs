@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fs::File, io::BufReader, sync::Arc};
 
 use glam::Vec3;
+use gltf::mesh::util::{ReadColors, ReadIndices};
 use obj::raw::{object::Polygon, RawObj};
 
 use vulkano::{
@@ -13,7 +14,7 @@ use vulkano::{
 // We use #[repr(C)] here to force rustc to not do anything funky with our data, although for this
 // particular example, it doesn't actually change the in-memory representation.
 #[repr(C)]
-#[derive(BufferContents, Vertex, Clone)]
+#[derive(BufferContents, Vertex, Clone, Debug)]
 pub struct ModelVertex {
     #[format(R32G32B32_SFLOAT)]
     pub position: [f32; 3],
@@ -64,12 +65,51 @@ impl MeshIndices {
     }
 }
 
+struct DataUri<'a> {
+    mime_type: &'a str,
+    base64: bool,
+    data: &'a str,
+}
+
+fn split_once(input: &str, delimiter: char) -> Option<(&str, &str)> {
+    let mut iter = input.splitn(2, delimiter);
+    Some((iter.next()?, iter.next()?))
+}
+
+impl<'a> DataUri<'a> {
+    fn parse(uri: &'a str) -> Result<DataUri<'a>, ()> {
+        let uri = uri.strip_prefix("data:").ok_or(())?;
+        let (mime_type, data) = split_once(uri, ',').ok_or(())?;
+
+        let (mime_type, base64) = match mime_type.strip_suffix(";base64") {
+            Some(mime_type) => (mime_type, true),
+            None => (mime_type, false),
+        };
+
+        Ok(DataUri {
+            mime_type,
+            base64,
+            data,
+        })
+    }
+
+    fn decode(&self) -> Result<Vec<u8>, base64::DecodeError> {
+        if self.base64 {
+            base64::decode(self.data)
+        } else {
+            Ok(self.data.as_bytes().to_owned())
+        }
+    }
+}
+
 impl Model {
     pub fn new(
         memory_allocator: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
         vertices: Vec<ModelVertex>,
         indices: Option<Vec<u32>>,
     ) -> Self {
+        println!("{} vertices", vertices.len());
+        println!("{} indices", indices.as_ref().map(|i| i.len()).unwrap_or(0));
         let maybe_index_buffer =
             indices.map(|indices| index_buffer(indices, memory_allocator.clone()));
 
@@ -90,6 +130,8 @@ impl Model {
 
         let mut vertices: Vec<ModelVertex> = Vec::with_capacity(vertcount);
 
+        let color = [1.0, 1.0, 1.0];
+
         for polygon in &raw.polygons {
             match polygon {
                 Polygon::P(poly) if poly.len() == 3 => {
@@ -100,7 +142,7 @@ impl Model {
                             vertices.push(ModelVertex {
                                 position: convert_position(&raw, *ipos),
                                 normal,
-                                color: [1.0, 1.0, 1.0],
+                                color,
                             });
                         });
                     }
@@ -114,7 +156,7 @@ impl Model {
                             vertices.push(ModelVertex {
                                 position: convert_position(&raw, *ipos),
                                 normal,
-                                color: [1.0, 1.0, 1.0],
+                                color,
                             });
                         });
                     }
@@ -125,7 +167,7 @@ impl Model {
                             vertices.push(ModelVertex {
                                 position: convert_position(&raw, *ipos),
                                 normal: convert_normal(&raw, *inorm),
-                                color: [1.0, 1.0, 1.0],
+                                color,
                             });
                         });
                     }
@@ -136,7 +178,7 @@ impl Model {
                             vertices.push(ModelVertex {
                                 position: convert_position(&raw, *ipos),
                                 normal: convert_normal(&raw, *inorm),
-                                color: [1.0, 1.0, 1.0],
+                                color,
                             });
                         });
                     }
@@ -154,6 +196,102 @@ impl Model {
         Model::new(memory_allocator, vertices, maybe_indices)
     }
 
+    pub fn from_first_mesh_in_gltf_path(
+        memory_allocator: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
+        path: &str,
+    ) -> Self {
+        const VALID_MIME_TYPES: &[&str] = &["application/octet-stream", "application/gltf-buffer"];
+        let bytes = BufReader::new(File::open(path).unwrap());
+        let gltf = gltf::Gltf::from_reader(bytes).unwrap();
+        let mut buffer_data: Vec<Vec<u8>> = Vec::new();
+        for buffer in gltf.buffers() {
+            match buffer.source() {
+                gltf::buffer::Source::Uri { 0: uri } => {
+                    let uri = percent_encoding::percent_decode_str(uri)
+                        .decode_utf8()
+                        .unwrap();
+                    let uri = uri.as_ref();
+                    let buffer_bytes = match DataUri::parse(uri) {
+                        Ok(data_uri) if VALID_MIME_TYPES.contains(&data_uri.mime_type) => {
+                            data_uri.decode().unwrap()
+                        }
+                        Ok(_) => panic!("Invalid mime type"),
+                        _ => panic!("Invalid uri"),
+                    };
+                    buffer_data.push(buffer_bytes);
+                }
+                gltf::buffer::Source::Bin => {
+                    if let Some(blob) = gltf.blob.as_deref() {
+                        buffer_data.push(blob.into());
+                    } else {
+                        panic!("No blob found in gltf");
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        for mesh in gltf.meshes() {
+            #[allow(clippy::never_loop)]
+            for primitive in mesh.primitives() {
+                let reader = primitive.reader(|buffer| Some(&buffer_data[buffer.index()]));
+
+                let mut normal = [0.0, 0.0, 0.0];
+                let mut color = [1.0, 1.0, 1.0];
+                let mut position: [f32; 3] = [0.0, 0.0, 0.0];
+
+                let mut vertices: Vec<ModelVertex> = Vec::new();
+                let mut indices: Vec<u32> = Vec::new();
+
+                if let Some(vertex_attribute) = reader.read_positions() {
+                    for position in vertex_attribute {
+                        vertices.push(ModelVertex {
+                            position,
+                            normal,
+                            color,
+                        });
+                    }
+                }
+
+                if let Some(vertex_attribute) = reader.read_normals() {
+                    for (i, normal) in vertex_attribute.enumerate() {
+                        vertices[i].normal = normal;
+                    }
+                }
+
+                if let Some(read_indices) = reader.read_indices() {
+                    match read_indices {
+                        ReadIndices::U8(_indices) => {
+                            for index in _indices {
+                                indices.push(index as u32);
+                            }
+                        }
+                        ReadIndices::U16(_indices) => {
+                            for index in _indices {
+                                indices.push(index as u32);
+                            }
+                        }
+                        ReadIndices::U32(_indices) => {
+                            for index in _indices {
+                                indices.push(index);
+                            }
+                        }
+                    }
+                }
+
+                if let Some(read_colors) = reader.read_colors(0) {
+                    let rgba = read_colors.into_rgb_f32();
+                    for (i, color) in rgba.enumerate() {
+                        vertices[i].color = color;
+                    }
+                }
+
+                return Model::new(memory_allocator, vertices, Some(indices));
+            }
+        }
+
+        panic!("No mesh found in gltf");
+    }
     // pub fn staging_vertex_buffer(
     //     &self,
     //     memory_allocator: &StandardMemoryAllocator,

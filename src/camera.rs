@@ -37,19 +37,23 @@ impl Camera {
         Mat4::orthographic_rh(left, right, bottom, top, self.near, self.far)
     }
 
-    pub fn calc_perspective_projection(&mut self, aspect: f32) -> Mat4 {
+    pub fn calc_perspective_projection(&self, aspect: f32) -> Mat4 {
         Mat4::perspective_rh(self.fov.to_radians(), aspect, self.near, self.far)
     }
 
-    pub fn calc_view_direction(&mut self, up: Vec3) -> Mat4 {
+    pub fn calc_view_direction(&self, up: Vec3) -> Mat4 {
         Mat4::look_at_rh(self.position, self.direction, up)
+    }
+
+    pub fn calc_view_direction_inverse(&self, up: Vec3) -> Mat4 {
+        Mat4::look_at_rh(self.position, self.direction, up).inverse()
     }
 
     // pub fn calc_view_target(&mut self, target: Vec3, up: Vec3) -> Mat4 {
     //     self.calc_view_direction(target - self.position, up)
     // }
 
-    pub fn calc_view_xyz(&mut self, position: Vec3, rotation: Vec3) -> Mat4 {
+    pub fn calc_view_xyz(&self, position: Vec3, rotation: Vec3) -> Mat4 {
         Mat4::from_rotation_translation(
             Quat::from_rotation_x(rotation.x)
                 * Quat::from_rotation_y(rotation.y)

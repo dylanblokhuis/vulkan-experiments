@@ -26,7 +26,7 @@ use vulkano::{
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
 };
 
-use crate::{camera::Camera, game::Game, render_ctx::RenderContext};
+use crate::{camera::Camera, game::Game, game_object::PointLight, render_ctx::RenderContext};
 
 pub struct PointLightRenderer {
     pub pipeline: Arc<GraphicsPipeline>,
@@ -107,10 +107,10 @@ impl RenderContext for PointLightRenderer {
         builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
         descriptor_set_allocator: Arc<StandardDescriptorSetAllocator>,
     ) {
-        let mut camera = game.world().query::<&mut Camera>().single_mut(game.world());
         let uniform_buffer_subbuffer = {
             let aspect_ratio =
                 swapchain.image_extent()[0] as f32 / swapchain.image_extent()[1] as f32;
+            let camera = game.world().query::<&Camera>().single(game.world());
 
             let uniform_data = point_vs::Data {
                 projection: camera
@@ -119,9 +119,6 @@ impl RenderContext for PointLightRenderer {
                 view: camera
                     .calc_view_direction(Vec3::new(0.0, -1.0, 0.0))
                     .to_cols_array_2d(),
-                ambientLightColor: [1.0, 1.0, 1.0, 0.2],
-                lightPosition: Vec3::new(-1.0, 1.0, -1.0).to_array().into(),
-                lightColor: [1.0, 1.0, 1.0, 1.0],
             };
 
             let subbuffer = self.uniform_buffer.allocate_sized().unwrap();
@@ -147,7 +144,25 @@ impl RenderContext for PointLightRenderer {
                 set,
             );
 
-        builder.draw(6, 1, 0, 0).unwrap();
+        for light in game.world().query::<&PointLight>().iter(game.world()) {
+            builder
+                .push_constants(
+                    self.pipeline.layout().clone(),
+                    0,
+                    point_vs::Push {
+                        color: [light.color.x, light.color.y, light.color.z, 1.0],
+                        position: [
+                            light.transform.translation.x,
+                            light.transform.translation.y,
+                            light.transform.translation.z,
+                            0.0,
+                        ],
+                        radius: light.radius,
+                    },
+                )
+                .draw(6, 1, 0, 0)
+                .unwrap();
+        }
     }
 }
 

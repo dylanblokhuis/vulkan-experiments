@@ -33,7 +33,7 @@ use winit::{
 use crate::{
     camera::Camera,
     game::{Assets, Game, Keycode, MouseWheelDelta},
-    game_object::GameObject,
+    game_object::{GameObject, PointLight},
     model::Model,
     point_light_renderer::{point_fs, point_vs, PointLightRenderer},
     render_ctx::RenderContext,
@@ -209,14 +209,19 @@ fn main() {
     let allocator_cl = memory_allocator.clone();
     game.add_startup_system(move |mut commands: Commands, mut assets: ResMut<Assets>| {
         let teapot_handle = "assets/teapot.obj";
-        let quad_handle = "assets/quad.obj";
+        let torus_handle = "assets/torus.gltf";
+        let quad_handle = "assets/quad.gltf";
         assets.map.insert(
             teapot_handle,
             Model::from_obj_path(allocator_cl.clone(), teapot_handle),
         );
         assets.map.insert(
+            torus_handle,
+            Model::from_first_mesh_in_gltf_path(allocator_cl.clone(), torus_handle),
+        );
+        assets.map.insert(
             quad_handle,
-            Model::from_obj_path(allocator_cl.clone(), quad_handle),
+            Model::from_first_mesh_in_gltf_path(allocator_cl.clone(), quad_handle),
         );
 
         let mut obj = GameObject::new();
@@ -227,8 +232,8 @@ fn main() {
 
         let mut obj = GameObject::new();
         obj.transform.translation = Vec3::new(0.7, -0.3, 0.0);
-        obj.transform.scale = Vec3::splat(0.2);
-        obj.model = Some(teapot_handle);
+        obj.transform.scale = Vec3::splat(0.5);
+        obj.model = Some(torus_handle);
         commands.spawn(obj);
 
         let mut obj = GameObject::new();
@@ -241,6 +246,20 @@ fn main() {
             Vec3::new(0.0, 0.0, -3.0),
             Vec3::new(0.0, 0.0, 0.0),
         ));
+
+        let mut light = PointLight::new();
+        light.transform.translation = Vec3::new(0.0, 0.5, -1.0);
+        light.color = Vec3::new(1.0, 0.0, 0.0);
+        commands.spawn(light);
+        let mut light = PointLight::new();
+        light.transform.translation = Vec3::new(1.0, 0.5, 1.0);
+        light.color = Vec3::new(0.0, 1.0, 0.0);
+        commands.spawn(light);
+        let mut light = PointLight::new();
+        light.transform.translation = Vec3::new(-1.0, 0.5, 1.0);
+        light.color = Vec3::new(0.0, 0.0, 1.0);
+        // light.radius = 0.;
+        commands.spawn(light);
     });
     game.add_system(|keycode: Res<Keycode>, mut camera_q: Query<&mut Camera>| {
         let mut camera = camera_q.single_mut();

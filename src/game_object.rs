@@ -31,7 +31,6 @@ impl TransformComponent {
 
 #[derive(Component, Clone)]
 pub struct GameObject {
-    pub color: Vec3,
     pub transform: TransformComponent,
     pub model: Option<ModelHandle>,
 }
@@ -41,9 +40,25 @@ pub struct GameObject {
 impl GameObject {
     pub fn new() -> GameObject {
         GameObject {
-            color: Vec3::new(1.0, 1.0, 1.0),
             transform: TransformComponent::new(),
             model: None,
+        }
+    }
+}
+
+#[derive(Component, Clone)]
+pub struct PointLight {
+    pub color: Vec3,
+    pub radius: f32,
+    pub transform: TransformComponent,
+}
+
+impl PointLight {
+    pub fn new() -> PointLight {
+        PointLight {
+            color: Vec3::new(1.0, 1.0, 1.0),
+            radius: 0.1,
+            transform: TransformComponent::new(),
         }
     }
 }

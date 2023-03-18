@@ -16,3 +16,6 @@ vulkano-util = { git = "https://github.com/vulkano-rs/vulkano.git" }
 vulkano-win = { git = "https://github.com/vulkano-rs/vulkano.git" }
 winit = "0.28"
 obj-rs = { version = "0.7", default-features = false }
+gltf = "1.1.0"
+percent-encoding = "2.2.0"
+base64 = "0.21.0"
