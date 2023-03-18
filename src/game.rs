@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Instant};
+use std::{collections::HashMap};
 
 use bevy_ecs::{
     schedule::{IntoSystemConfig, Schedule, ScheduleLabel},
@@ -6,7 +6,7 @@ use bevy_ecs::{
     world::World,
 };
 use bevy_time::Time;
-use winit::event::{ElementState, KeyboardInput, MouseScrollDelta, TouchPhase, VirtualKeyCode};
+use winit::event::{ElementState, KeyboardInput, MouseScrollDelta, VirtualKeyCode};
 
 use crate::{model::Model, ModelHandle};
 

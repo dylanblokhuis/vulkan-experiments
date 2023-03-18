@@ -1,38 +1,20 @@
 use bevy_ecs::system::{Commands, Query, Res, ResMut};
 use glam::Vec3;
-use model::ModelVertex;
-use std::{collections::HashMap, sync::Arc};
+
+use std::sync::Arc;
 use vulkano::{
-    buffer::{
-        allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
-        BufferUsage,
-    },
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
-        RenderPassBeginInfo, SubpassContents,
     },
-    descriptor_set::{
-        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
-    },
+    descriptor_set::allocator::StandardDescriptorSetAllocator,
     device::{
-        physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned,
-        QueueCreateInfo, QueueFlags,
+        physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo,
+        QueueFlags,
     },
     format::Format,
-    image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},
+    image::ImageUsage,
     instance::{Instance, InstanceCreateInfo},
     memory::allocator::StandardMemoryAllocator,
-    pipeline::{
-        graphics::{
-            depth_stencil::DepthStencilState,
-            input_assembly::InputAssemblyState,
-            vertex_input::Vertex,
-            viewport::{Viewport, ViewportState},
-        },
-        GraphicsPipeline, Pipeline, PipelineBindPoint,
-    },
-    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
-    shader::ShaderModule,
     swapchain::{
         acquire_next_image, AcquireError, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
         SwapchainPresentInfo,
@@ -52,7 +34,7 @@ use crate::{
     game::{Assets, Game, Keycode, MouseWheelDelta},
     game_object::GameObject,
     model::Model,
-    render_ctx::{RenderContext, RenderContextT},
+    render_ctx::RenderContextT,
     world_renderer::{world_fs, world_vs, WorldRenderer},
 };
 
@@ -386,76 +368,6 @@ fn main() {
                 image_index as usize,
                 descriptor_set_allocator.clone(),
             );
-            // for p in render_contexts.iter_mut() {
-            //     p.render(&mut builder, image_index as usize, |ctx, builder| {
-            //         let mut camera = game.world().query::<&mut Camera>().single_mut(game.world());
-            //         let uniform_buffer_subbuffer = {
-            //             let aspect_ratio =
-            //                 swapchain.image_extent()[0] as f32 / swapchain.image_extent()[1] as f32;
-
-            //             let uniform_data = vs::Data {
-            //                 projection: camera
-            //                     .calc_perspective_projection(aspect_ratio)
-            //                     .to_cols_array_2d(),
-            //                 view: camera
-            //                     .calc_view_direction(Vec3::new(0.0, -1.0, 0.0))
-            //                     .to_cols_array_2d(),
-            //                 ambientLightColor: [1.0, 1.0, 1.0, 0.2],
-            //                 lightPosition: Vec3::new(-1.0, -1.0, -1.0).to_array().into(),
-            //                 lightColor: [1.0, 1.0, 1.0, 1.0],
-            //             };
-
-            //             let subbuffer = uniform_buffer.allocate_sized().unwrap();
-            //             *subbuffer.write().unwrap() = uniform_data;
-
-            //             subbuffer
-            //         };
-
-            //         let layout = ctx.pipeline.layout().set_layouts().get(0).unwrap();
-            //         let set = PersistentDescriptorSet::new(
-            //             &descriptor_set_allocator,
-            //             layout.clone(),
-            //             [WriteDescriptorSet::buffer(0, uniform_buffer_subbuffer)],
-            //         )
-            //         .unwrap();
-
-            //         builder
-            //             .bind_pipeline_graphics(ctx.pipeline.clone())
-            //             .bind_descriptor_sets(
-            //                 PipelineBindPoint::Graphics,
-            //                 ctx.pipeline.layout().clone(),
-            //                 0,
-            //                 set,
-            //             );
-
-            //         for obj in game.world().query::<&GameObject>().iter(game.world()) {
-            //             let model_matrix = obj.transform.mat4();
-            //             let push_constants = vs::Push {
-            //                 modelMatrix: model_matrix.to_cols_array_2d(),
-            //                 normalMatrix: obj.transform.normal_matrix().to_cols_array_2d(),
-            //             };
-
-            //             let model_handle = if let Some(model_handle) = obj.model {
-            //                 model_handle
-            //             } else {
-            //                 continue;
-            //             };
-
-            //             let model = assets.get(model_handle).unwrap();
-            //             // this should be moved to handles
-            //             let vertex_buffer = &model.vertex_buffer;
-            //             let index_buffer = &model.index_buffer.to_owned().unwrap();
-
-            //             builder
-            //                 .bind_vertex_buffers(0, vertex_buffer.clone())
-            //                 .bind_index_buffer(index_buffer.clone())
-            //                 .push_constants(ctx.pipeline.layout().clone(), 0, push_constants);
-            //             builder
-            //                 .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
-            //                 .unwrap();
-            //         }
-            //     });
-            // }
 
             let command_buffer = builder.build().unwrap();
 
@@ -487,58 +399,4 @@ fn main() {
         }
         _ => (),
     });
-}
-
-/// This function is called once during initialization, then again whenever the window is resized.
-fn window_size_dependent_setup(
-    memory_allocator: &StandardMemoryAllocator,
-    vs: &ShaderModule,
-    fs: &ShaderModule,
-    images: &[Arc<SwapchainImage>],
-    render_pass: Arc<RenderPass>,
-) -> (Arc<GraphicsPipeline>, Vec<Arc<Framebuffer>>) {
-    let dimensions = images[0].dimensions().width_height();
-
-    let depth_buffer = ImageView::new_default(
-        AttachmentImage::transient(memory_allocator, dimensions, Format::D16_UNORM).unwrap(),
-    )
-    .unwrap();
-
-    let framebuffers = images
-        .iter()
-        .map(|image| {
-            let view = ImageView::new_default(image.clone()).unwrap();
-            Framebuffer::new(
-                render_pass.clone(),
-                FramebufferCreateInfo {
-                    attachments: vec![view, depth_buffer.clone()],
-                    ..Default::default()
-                },
-            )
-            .unwrap()
-        })
-        .collect::<Vec<_>>();
-
-    // In the triangle example we use a dynamic viewport, as its a simple example. However in the
-    // teapot example, we recreate the pipelines with a hardcoded viewport instead. This allows the
-    // driver to optimize things, at the cost of slower window resizes.
-    // https://computergraphics.stackexchange.com/questions/5742/vulkan-best-way-of-updating-pipeline-viewport
-    let pipeline = GraphicsPipeline::start()
-        .vertex_input_state(ModelVertex::per_vertex())
-        .vertex_shader(vs.entry_point("main").unwrap(), ())
-        .input_assembly_state(InputAssemblyState::new())
-        .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
-            Viewport {
-                origin: [0.0, 0.0],
-                dimensions: [dimensions[0] as f32, dimensions[1] as f32],
-                depth_range: 0.0..1.0,
-            },
-        ]))
-        .fragment_shader(fs.entry_point("main").unwrap(), ())
-        .depth_stencil_state(DepthStencilState::simple_depth_test())
-        .render_pass(Subpass::from(render_pass, 0).unwrap())
-        .build(memory_allocator.device().clone())
-        .unwrap();
-
-    (pipeline, framebuffers)
 }

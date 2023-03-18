@@ -1,4 +1,4 @@
-use bevy_ecs::prelude::Res;
+
 use std::sync::Arc;
 
 use glam::Vec3;
@@ -13,7 +13,7 @@ use vulkano::{
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
     },
-    device::{self, Device, DeviceOwned},
+    device::{DeviceOwned},
     format::Format,
     image::{view::ImageView, AttachmentImage, ImageAccess, SwapchainImage},
     memory::allocator::StandardMemoryAllocator,
@@ -21,13 +21,12 @@ use vulkano::{
         graphics::{
             depth_stencil::DepthStencilState,
             input_assembly::InputAssemblyState,
-            vertex_input::{Vertex, VertexDefinition},
+            vertex_input::{Vertex},
             viewport::{Viewport, ViewportState},
         },
         GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
-    shader::ShaderModule,
 };
 
 use crate::{
@@ -35,7 +34,7 @@ use crate::{
     game::{Assets, Game},
     game_object::GameObject,
     model::ModelVertex,
-    render_ctx::{RenderContext, RenderContextT},
+    render_ctx::{RenderContextT},
 };
 
 pub struct WorldRenderer {
@@ -96,7 +95,7 @@ impl RenderContextT for WorldRenderer {
             .unwrap();
 
         let uniform_buffer = SubbufferAllocator::new(
-            memory_allocator.clone(),
+            memory_allocator,
             SubbufferAllocatorCreateInfo {
                 buffer_usage: BufferUsage::UNIFORM_BUFFER,
                 ..Default::default()

@@ -5,7 +5,7 @@ use vulkano::{
         AutoCommandBufferBuilder, PrimaryAutoCommandBuffer, RenderPassBeginInfo, SubpassContents,
     },
     descriptor_set::allocator::StandardDescriptorSetAllocator,
-    device::{Device, DeviceOwned},
+    device::{DeviceOwned},
     format::Format,
     image::{view::ImageView, AttachmentImage, ImageAccess, SwapchainImage},
     memory::allocator::StandardMemoryAllocator,
