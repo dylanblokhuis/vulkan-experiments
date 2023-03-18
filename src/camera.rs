@@ -11,7 +11,7 @@ impl Camera {
         Camera {
             projection: Mat4::NAN,
             view: Mat4::NAN,
-            position: glam::Vec3::ZERO,
+            position: glam::Vec3::new(0.0, 0.0, -1.0),
         }
     }
 

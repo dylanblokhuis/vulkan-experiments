@@ -21,6 +21,10 @@ impl TransformComponent {
         // glam::Mat4::from_translation(self.translation)
         glam::Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation)
     }
+
+    pub fn normal_matrix(&self) -> Mat4 {
+        self.mat4().inverse()
+    }
 }
 
 #[derive(Component, Clone)]

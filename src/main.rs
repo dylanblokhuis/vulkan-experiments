@@ -21,14 +21,18 @@
 // Vulkan 1.3, or if you want to see how to support older versions, see the original triangle
 // example.
 
-use bevy_ecs::system::Commands;
+use bevy_ecs::system::{Commands, Query};
 use bevy_time::Time;
-use glam::{Quat, Vec3};
-use std::sync::Arc;
+use glam::{Mat4, Quat, Vec3};
+use std::{mem::size_of, path::Path, sync::Arc};
 use vulkano::{
+    buffer::{BufferUsage, CpuAccessibleBuffer, DeviceLocalBuffer},
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
         RenderingAttachmentInfo, RenderingInfo,
+    },
+    descriptor_set::{
+        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
     },
     device::{
         physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, Features,
@@ -40,6 +44,7 @@ use vulkano::{
     memory::allocator::StandardMemoryAllocator,
     pipeline::{
         graphics::{
+            depth_stencil::DepthStencilState,
             input_assembly::InputAssemblyState,
             render_pass::PipelineRenderingCreateInfo,
             vertex_input::BuffersDefinition,
@@ -54,7 +59,7 @@ use vulkano::{
         SwapchainCreationError, SwapchainPresentInfo,
     },
     sync::{self, FlushError, GpuFuture},
-    Version, VulkanLibrary,
+    DeviceSize, Version, VulkanLibrary,
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
@@ -67,7 +72,7 @@ use crate::{
     camera::Camera,
     game::Game,
     game_object::GameObject,
-    model::{make_cube, Vertex},
+    model::{make_cube, Model, Vertex},
 };
 
 mod camera;
@@ -265,7 +270,7 @@ fn main() {
                 min_image_count: surface_capabilities.min_image_count,
 
                 image_format,
-                present_mode: PresentMode::Mailbox,
+                present_mode: PresentMode::Fifo,
                 // The dimensions of the window, only used to initially setup the swapchain.
                 // NOTE:
                 // On some drivers the swapchain dimensions are specified by
@@ -302,8 +307,6 @@ fn main() {
     };
 
     let memory_allocator = StandardMemoryAllocator::new_default(device.clone());
-
-    impl_vertex!(Vertex, position, color);
 
     // The next step is to create the shaders.
     //
@@ -372,6 +375,7 @@ fn main() {
         .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
         // See `vertex_shader`.
         .fragment_shader(fs.entry_point("main").unwrap(), ())
+        .depth_stencil_state(DepthStencilState::simple_depth_test())
         // Now that our builder is filled, we call `build()` to obtain an actual pipeline.
         .build(device.clone())
         .unwrap();
@@ -391,6 +395,7 @@ fn main() {
     // each image.
     let mut attachment_image_views = window_size_dependent_setup(&images, &mut viewport);
 
+    let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
     // Before we can start creating and recording command buffers, we need a way of allocating
     // them. Vulkano provides a command builder allocator, which manages raw Vulkan command pools_draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance)
     // underneath and provides a safe interface for them.
@@ -422,31 +427,29 @@ fn main() {
     // spawn stuff
     game.add_startup_system(|mut commands: Commands| {
         let mut obj = GameObject::new();
-        obj.transform.translation = Vec3::new(0.0, 0.0, -5.0);
+        obj.transform.translation = Vec3::new(0.0, -1.0, 10.0);
         obj.transform.scale = Vec3::new(1.0, 1.0, 1.0);
-        obj.transform.rotation = Quat::from_scaled_axis(Vec3::new(0.0, -1.0, -1.0));
+        // obj.transform.rotation = Quat::from_scaled_axis(Vec3::new(0.0, 0.0, 0.0));
         commands.spawn(obj);
+    });
+    game.add_system(|mut objs: Query<&mut GameObject>| {
+        for mut obj in objs.iter_mut() {
+            obj.transform.rotation *= Quat::from_scaled_axis(Vec3::new(0.0, 0.025, 0.0));
+            obj.transform.rotation *= Quat::from_scaled_axis(Vec3::new(0.025, 0.00, 0.0));
+        }
     });
 
     let mut camera = Camera::new();
     let mut time = Time::default();
-    // camera.set_view_direction(
-    //     Vec3::splat(0.0),
-    //     Vec3::new(0.0, 0.0, -1.0),
-    //     Vec3::new(0.0, 1.0, 0.0),
-    // );
-    // camera.set_view_target(
-    //     Vec3::new(0.0, 0.0, 2.0),
-    //     Vec3::new(0.0, 0.0, -5.0),
-    //     Vec3::new(0.0, 1.0, 0.0),
-    // );
 
     let mut w_is_pressed = false;
     let mut s_is_pressed = false;
     let mut a_is_pressed = false;
     let mut d_is_pressed = false;
 
-    let model = make_cube();
+    let model = Model::from_obj_path("assets/teapot.obj");
+
+    // let model = make_cube();
     let vertex_device_buffer = model.staging_vertex_buffer(
         &memory_allocator,
         &device,
@@ -461,6 +464,33 @@ fn main() {
     );
     let vertex_len = model.vertices.len();
     let maybe_indices_len = model.indices.map(|x| x.len());
+    let projection_view = camera.projection * camera.view;
+
+    let min_dynamic_align = device
+        .physical_device()
+        .properties()
+        .min_uniform_buffer_offset_alignment as usize;
+    println!("Minimum uniform buffer offset alignment: {min_dynamic_align}");
+    let align = (size_of::<u32>() + min_dynamic_align - 1) & !(min_dynamic_align - 1);
+
+    let ubo = vs::ty::GlobalUbo {
+        projectionViewMatrix: camera.projection.to_cols_array_2d(),
+        directionToLight: Vec3::new(1.0, -3.0, -1.0).normalize().to_array(),
+    };
+
+    // Create a buffer array on the GPU with enough space for `10_000` floats.
+    // let device_local_buffer = DeviceLocalBuffer::<[u32]>::array(
+    //     &memory_allocator,
+    //     indices.len() as vulkano::DeviceSize,
+    //     BufferUsage {
+    //         storage_buffer: true,
+    //         transfer_dst: true,
+    //         uniform_buffer: true,
+    //         ..BufferUsage::empty()
+    //     }, // Specify use as a storage buffer and transfer destination.
+    //     device.active_queue_family_indices().iter().copied(),
+    // )
+    // .unwrap();
 
     event_loop.run(move |event, _, control_flow| {
         time.update();
@@ -575,15 +605,15 @@ fn main() {
                 }
 
                 let aspect_ratio = viewport.dimensions[0] / viewport.dimensions[1];
-                // camera.set_orthographic_projection(
-                //     -aspect_ratio,
-                //     aspect_ratio,
-                //     -1.0,
-                //     1.0,
-                //     -1.0,
-                //     1.0,
-                // );
                 camera.set_perspective_projection(50.0_f32.to_radians(), aspect_ratio, 0.1, 1000.0);
+
+                let layout = pipeline.layout().set_layouts().get(0).unwrap();
+                let descriptor_set = PersistentDescriptorSet::new(
+                    &descriptor_set_allocator,
+                    layout.clone(),
+                    [WriteDescriptorSet::buffer(0, uniform_buffer.clone())],
+                )
+                .unwrap();
 
                 // In order to draw, we have to build a *command builder*. The command builder object holds_draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance)
                 // the list of commands that are going to be executed.
@@ -600,26 +630,6 @@ fn main() {
                     CommandBufferUsage::OneTimeSubmit,
                 )
                 .unwrap();
-
-                // builder
-                //     .copy_buffer(CopyBufferInfo::buffers(
-                //         temp_vertex_buffer.clone(),
-                //         vertex_device_buffer,
-                //     ))
-                //     .unwrap();
-
-                // let mut indices_count: Option<u32> = None;
-                // if let Some((temp_index_buffer, index_device_buffer, indices_len)) =
-                //     maybe_staging_index_buffer
-                // {
-                //     indices_count = Some(indices_len);
-                //     builder
-                //         .copy_buffer(CopyBufferInfo::buffers(
-                //             temp_index_buffer,
-                //             index_device_buffer,
-                //         ))
-                //         .unwrap();
-                // }
 
                 builder
                     // Before we can draw, we have to *enter a render pass*. We specify which
@@ -654,6 +664,13 @@ fn main() {
                     //
                     // The last two parameters contain the list of resources to pass to the shaders.
                     // Since we used an `EmptyPipeline` object, the objects have to be `()`.
+                    .bind_descriptor_sets(
+                        vulkano::pipeline::PipelineBindPoint::Graphics,
+                        pipeline.layout().clone(),
+                        0,
+                        descriptor_set,
+                    )
+                    //
                     .set_viewport(0, [viewport.clone()])
                     .bind_pipeline_graphics(pipeline.clone())
                     .bind_vertex_buffers(0, vertex_device_buffer.clone());
@@ -665,10 +682,10 @@ fn main() {
                 game.run();
 
                 if w_is_pressed {
-                    camera.position.z -= 0.1;
+                    camera.position.z += 0.1;
                 }
                 if s_is_pressed {
-                    camera.position.z += 0.1;
+                    camera.position.z -= 0.1;
                 }
                 if a_is_pressed {
                     camera.position.x -= 0.1;
@@ -679,23 +696,23 @@ fn main() {
 
                 camera.set_view_direction(
                     camera.position,
-                    Vec3::new(0.0, 0.0, -1.0),
-                    Vec3::new(0.0, 1.0, 0.0),
+                    Vec3::new(0.0, 0.0, 0.0),
+                    Vec3::new(0.0, -1.0, 0.0),
                 );
-
-                let projection_view = camera.projection * camera.view;
 
                 for obj in game.world().query::<&GameObject>().iter(game.world()) {
                     // obj.transform.rotation += Quat::from_axis_angle(Vec3::new(0.0, 1.0, 0.0), 0.01);
                     // obj.transform.rotation.x += ;
                     // obj.transform.rotation.y += time.delta_seconds() * 4.0;
 
+                    let model_matrix = obj.transform.mat4();
                     let push_constants = vs::ty::Push {
-                        color: obj.color.into(),
-                        transform: (projection_view * obj.transform.mat4()).to_cols_array_2d(),
+                        transform: (projection_view * model_matrix).to_cols_array_2d(),
+                        normalMatrix: obj.transform.normal_matrix().to_cols_array_2d(),
                     };
 
                     builder.push_constants(pipeline.layout().clone(), 0, push_constants);
+
                     if let Some(indices_len) = maybe_indices_len {
                         builder
                             .draw_indexed(indices_len as u32, 1, 0, 0, 0)
