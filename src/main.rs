@@ -1,7 +1,8 @@
-use bevy_ecs::system::Commands;
+use bevy_ecs::system::{Commands, Query, Res};
+use bevy_time::Time;
 use glam::Vec3;
 use model::ModelVertex;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, ops::AddAssign, sync::Arc};
 use vulkano::{
     buffer::{
         allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
@@ -42,12 +43,17 @@ use vulkano::{
 };
 use vulkano_win::VkSurfaceBuild;
 use winit::{
-    event::{Event, WindowEvent},
+    event::{Event, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
 
-use crate::{camera::Camera, game::Game, game_object::GameObject, model::Model};
+use crate::{
+    camera::Camera,
+    game::{Game, Keycode},
+    game_object::GameObject,
+    model::Model,
+};
 
 mod camera;
 mod game;
@@ -161,24 +167,6 @@ fn main() {
 
     let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
-    // let vertex_buffer = Buffer::from_iter(
-    //     &memory_allocator,
-    //     BufferAllocateInfo {
-    //         buffer_usage: BufferUsage::VERTEX_BUFFER,
-    //         ..Default::default()
-    //     },
-    //     model.vertices,
-    // )
-    // .unwrap();
-    // let index_buffer = Buffer::from_iter(
-    //     &memory_allocator,
-    //     BufferAllocateInfo {
-    //         buffer_usage: BufferUsage::INDEX_BUFFER,
-    //         ..Default::default()
-    //     },
-    //     model.indices.unwrap(),
-    // )
-    // .unwrap();
     let uniform_buffer = SubbufferAllocator::new(
         memory_allocator.clone(),
         SubbufferAllocatorCreateInfo {
@@ -222,14 +210,6 @@ fn main() {
     let command_buffer_allocator =
         StandardCommandBufferAllocator::new(device.clone(), Default::default());
 
-    let mut camera = Camera::new();
-    camera.set_view_direction(
-        // position camera behind, so the objects move Z+ forward, Y+ up, X+ right
-        Vec3::new(0.0, 0.0, -3.0),
-        Vec3::new(0.0, 0.0, 0.0),
-        Vec3::new(0.0, -1.0, 0.0),
-    );
-
     let mut game = Game::new();
 
     let mut assets = HashMap::<ModelHandle, Model>::new();
@@ -262,13 +242,37 @@ fn main() {
         obj.transform.scale = Vec3::new(3.0, 1.0, 3.0);
         obj.model = Some(quad_handle);
         commands.spawn(obj);
+
+        commands.spawn(Camera::new(
+            Vec3::new(0.0, 0.0, -3.0),
+            Vec3::new(0.0, 0.0, 0.0),
+        ));
     });
-    // game.add_system(|mut objs: Query<&mut GameObject>| {
-    //     for mut obj in objs.iter_mut() {
-    //         obj.transform.rotation *= Quat::from_scaled_axis(Vec3::new(0.0, 0.025, 0.0));
-    //         obj.transform.rotation *= Quat::from_scaled_axis(Vec3::new(0.025, 0.00, 0.0));
-    //     }
-    // });
+    game.add_system(|keycode: Res<Keycode>, mut camera_q: Query<&mut Camera>| {
+        let mut camera = camera_q.single_mut();
+        let keyboard_camera_increment = 0.05;
+        match keycode.keycode {
+            Some(VirtualKeyCode::W) => {
+                camera.y_angle += keyboard_camera_increment;
+            }
+            Some(VirtualKeyCode::S) => {
+                camera.y_angle -= keyboard_camera_increment;
+            }
+            Some(VirtualKeyCode::A) => {
+                camera.x_angle -= keyboard_camera_increment;
+            }
+            Some(VirtualKeyCode::D) => {
+                camera.x_angle += keyboard_camera_increment;
+            }
+            _ => {}
+        }
+
+        let x = camera.radius * camera.y_angle.cos() * camera.x_angle.sin();
+        let y = camera.radius * camera.y_angle.sin();
+        let z = camera.radius * camera.y_angle.cos() * camera.x_angle.cos();
+
+        camera.position = Vec3::ZERO + Vec3::new(x, y, z);
+    });
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
@@ -282,6 +286,12 @@ fn main() {
             ..
         } => {
             recreate_swapchain = true;
+        }
+        Event::WindowEvent {
+            event: WindowEvent::KeyboardInput { input, .. },
+            ..
+        } => {
+            game.handle_keyboard_events(input);
         }
         Event::RedrawEventsCleared => {
             let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
@@ -315,12 +325,17 @@ fn main() {
                 recreate_swapchain = false;
             }
 
+            game.run();
+
+            let mut camera = game.world().query::<&mut Camera>().single_mut(game.world());
+
             let uniform_buffer_subbuffer = {
                 let aspect_ratio =
                     swapchain.image_extent()[0] as f32 / swapchain.image_extent()[1] as f32;
-                camera.set_perspective_projection(50.0_f32.to_radians(), aspect_ratio, 0.01, 100.0);
+                camera.calc_perspective_projection(aspect_ratio);
 
-                let projection_view = camera.projection * camera.view;
+                let projection_view = camera.calc_perspective_projection(aspect_ratio)
+                    * camera.calc_view_direction(Vec3::new(0.0, -1.0, 0.0));
 
                 let uniform_data = vs::Data {
                     projectionView: projection_view.to_cols_array_2d(),
@@ -382,8 +397,6 @@ fn main() {
                     0,
                     set,
                 );
-
-            game.run();
 
             for obj in game.world().query::<&GameObject>().iter(game.world()) {
                 let model_matrix = obj.transform.mat4();

@@ -1,7 +1,12 @@
+use std::time::Instant;
+
 use bevy_ecs::{
     schedule::{IntoSystemConfig, Schedule, ScheduleLabel},
+    system::Resource,
     world::World,
 };
+use bevy_time::Time;
+use winit::event::{ElementState, KeyboardInput, VirtualKeyCode};
 
 pub struct Game {
     world: World,
@@ -15,9 +20,17 @@ pub enum CoreSchedule {
     Main,
 }
 
+#[derive(Resource, Default)]
+pub struct Keycode {
+    pub keycode: Option<VirtualKeyCode>,
+}
+
 impl Game {
     pub fn new() -> Game {
-        let world = World::new();
+        let mut world = World::new();
+        world.insert_resource(Keycode::default());
+        world.insert_resource(Time::default());
+
         let startup_schedule = Schedule::default();
         let main_schedule = Schedule::default();
 
@@ -25,6 +38,21 @@ impl Game {
             world,
             startup_schedule,
             main_schedule,
+        }
+    }
+
+    pub fn handle_keyboard_events(&mut self, input: KeyboardInput) {
+        if input.state == ElementState::Pressed {
+            match input.virtual_keycode {
+                Some(key) => {
+                    self.world.insert_resource(Keycode { keycode: Some(key) });
+                }
+                None => {
+                    self.world.insert_resource(Keycode { keycode: None });
+                }
+            }
+        } else {
+            self.world.insert_resource(Keycode { keycode: None });
         }
     }
 
@@ -42,6 +70,8 @@ impl Game {
     }
 
     pub fn run(&mut self) {
+        self.world.resource_mut::<Time>().update();
+        // self.time.update();
         self.main_schedule.run(&mut self.world);
     }
 }

@@ -1,55 +1,60 @@
-use glam::Mat4;
+use bevy_ecs::prelude::Component;
+use glam::{Mat4, Quat, Vec3};
 
+#[derive(Component)]
 pub struct Camera {
-    pub projection: Mat4,
-    pub view: Mat4,
-    pub position: glam::Vec3,
+    pub position: Vec3,
+    pub direction: Vec3,
+    pub x_angle: f32,
+    pub y_angle: f32,
+    pub radius: f32,
+    pub fov: f32,
+    pub near: f32,
+    pub far: f32,
 }
 
 impl Camera {
-    pub fn new() -> Camera {
+    pub fn new(position: Vec3, direction: Vec3) -> Camera {
         Camera {
-            projection: Mat4::NAN,
-            view: Mat4::NAN,
-            position: glam::Vec3::new(0.0, 0.0, 0.0),
+            position,
+            direction,
+            fov: 50.0,
+            near: 0.1,
+            far: 1000.0,
+            radius: 5.0,
+            x_angle: 8.5,
+            y_angle: 0.66,
         }
     }
 
-    pub fn set_orthographic_projection(
+    pub fn calc_orthographic_projection(
         &mut self,
         left: f32,
         right: f32,
         top: f32,
         bottom: f32,
-        near: f32,
-        far: f32,
-    ) {
-        self.projection = Mat4::orthographic_rh(left, right, bottom, top, near, far);
+    ) -> Mat4 {
+        Mat4::orthographic_rh(left, right, bottom, top, self.near, self.far)
     }
 
-    pub fn set_perspective_projection(&mut self, fov: f32, aspect: f32, near: f32, far: f32) {
-        self.projection = Mat4::perspective_rh(fov, aspect, near, far);
+    pub fn calc_perspective_projection(&mut self, aspect: f32) -> Mat4 {
+        Mat4::perspective_rh(self.fov.to_radians(), aspect, self.near, self.far)
     }
 
-    pub fn set_view_direction(
-        &mut self,
-        position: glam::Vec3,
-        direction: glam::Vec3,
-        up: glam::Vec3,
-    ) {
-        self.view = Mat4::look_at_rh(position, direction, up);
+    pub fn calc_view_direction(&mut self, up: Vec3) -> Mat4 {
+        Mat4::look_at_rh(self.position, self.direction, up)
     }
 
-    pub fn set_view_target(&mut self, position: glam::Vec3, target: glam::Vec3, up: glam::Vec3) {
-        self.set_view_direction(position, target - position, up);
-    }
+    // pub fn calc_view_target(&mut self, target: Vec3, up: Vec3) -> Mat4 {
+    //     self.calc_view_direction(target - self.position, up)
+    // }
 
-    pub fn set_view_xyz(&mut self, position: glam::Vec3, rotation: glam::Vec3) {
-        self.view = Mat4::from_rotation_translation(
-            glam::Quat::from_rotation_x(rotation.x)
-                * glam::Quat::from_rotation_y(rotation.y)
-                * glam::Quat::from_rotation_z(rotation.z),
+    pub fn calc_view_xyz(&mut self, position: Vec3, rotation: Vec3) -> Mat4 {
+        Mat4::from_rotation_translation(
+            Quat::from_rotation_x(rotation.x)
+                * Quat::from_rotation_y(rotation.y)
+                * Quat::from_rotation_z(rotation.z),
             position,
-        );
+        )
     }
 }
