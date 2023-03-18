@@ -1,11 +1,11 @@
-use bevy_ecs::system::{Commands, Query};
-use glam::{Mat3, Mat4, Quat, Vec3, Vec4};
+use bevy_ecs::system::Commands;
+use glam::Vec3;
 use model::ModelVertex;
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{collections::HashMap, sync::Arc};
 use vulkano::{
     buffer::{
         allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
-        Buffer, BufferAllocateInfo, BufferUsage,
+        BufferUsage,
     },
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
@@ -16,7 +16,7 @@ use vulkano::{
     },
     device::{
         physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, DeviceOwned,
-        Features, QueueCreateInfo, QueueFlags,
+        QueueCreateInfo, QueueFlags,
     },
     format::Format,
     image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage, SwapchainImage},

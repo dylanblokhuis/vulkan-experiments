@@ -1,5 +1,5 @@
 use bevy_ecs::{
-    schedule::{IntoSystemConfig, OnEnter, Schedule, ScheduleLabel, SystemSet},
+    schedule::{IntoSystemConfig, Schedule, ScheduleLabel},
     world::World,
 };
 
@@ -17,7 +17,7 @@ pub enum CoreSchedule {
 
 impl Game {
     pub fn new() -> Game {
-        let mut world = World::new();
+        let world = World::new();
         let startup_schedule = Schedule::default();
         let main_schedule = Schedule::default();
 
