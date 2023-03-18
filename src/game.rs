@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{collections::HashMap, time::Instant};
 
 use bevy_ecs::{
     schedule::{IntoSystemConfig, Schedule, ScheduleLabel},
@@ -7,6 +7,8 @@ use bevy_ecs::{
 };
 use bevy_time::Time;
 use winit::event::{ElementState, KeyboardInput, MouseScrollDelta, TouchPhase, VirtualKeyCode};
+
+use crate::{model::Model, ModelHandle};
 
 pub struct Game {
     world: World,
@@ -30,12 +32,19 @@ pub struct MouseWheelDelta {
     pub delta: Option<MouseScrollDelta>,
 }
 
+// let mut assets = HashMap::<ModelHandle, Model>::new();
+#[derive(Resource, Default)]
+pub struct Assets {
+    pub map: HashMap<ModelHandle, Model>,
+}
+
 impl Game {
     pub fn new() -> Game {
         let mut world = World::new();
         world.insert_resource(Keycode::default());
         world.insert_resource(Time::default());
         world.insert_resource(MouseWheelDelta::default());
+        world.insert_resource(Assets::default());
 
         let startup_schedule = Schedule::default();
         let main_schedule = Schedule::default();

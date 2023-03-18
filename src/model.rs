@@ -66,11 +66,12 @@ impl MeshIndices {
 
 impl Model {
     pub fn new(
-        memory_allocator: &GenericMemoryAllocator<Arc<FreeListAllocator>>,
+        memory_allocator: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
         vertices: Vec<ModelVertex>,
         indices: Option<Vec<u32>>,
     ) -> Self {
-        let maybe_index_buffer = indices.map(|indices| index_buffer(indices, memory_allocator));
+        let maybe_index_buffer =
+            indices.map(|indices| index_buffer(indices, memory_allocator.clone()));
 
         Self {
             vertex_buffer: vertex_buffer(vertices, memory_allocator),
@@ -79,7 +80,7 @@ impl Model {
     }
 
     pub fn from_obj_path(
-        memory_allocator: &GenericMemoryAllocator<Arc<FreeListAllocator>>,
+        memory_allocator: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
         path: &str,
     ) -> Self {
         let bytes = BufReader::new(File::open(path).unwrap());
@@ -290,10 +291,10 @@ impl Model {
 
 fn vertex_buffer(
     vertices: Vec<ModelVertex>,
-    memory_allocator: &GenericMemoryAllocator<Arc<FreeListAllocator>>,
+    memory_allocator: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
 ) -> Subbuffer<[ModelVertex]> {
     Buffer::from_iter(
-        memory_allocator,
+        &memory_allocator,
         BufferAllocateInfo {
             buffer_usage: BufferUsage::VERTEX_BUFFER,
             ..Default::default()
@@ -305,10 +306,10 @@ fn vertex_buffer(
 
 fn index_buffer(
     indices: Vec<u32>,
-    memory_allocator: &GenericMemoryAllocator<Arc<FreeListAllocator>>,
+    memory_allocator: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>,
 ) -> Subbuffer<[u32]> {
     Buffer::from_iter(
-        memory_allocator,
+        &memory_allocator,
         BufferAllocateInfo {
             buffer_usage: BufferUsage::INDEX_BUFFER,
             ..Default::default()
@@ -318,7 +319,7 @@ fn index_buffer(
     .unwrap()
 }
 
-pub fn make_cube(memory_allocator: &GenericMemoryAllocator<Arc<FreeListAllocator>>) -> Model {
+pub fn make_cube(memory_allocator: Arc<GenericMemoryAllocator<Arc<FreeListAllocator>>>) -> Model {
     let vertices = vec![
         ModelVertex {
             position: [-0.5, -0.5, -0.5],

@@ -1,8 +1,7 @@
 use bevy_ecs::system::{Commands, Query, Res, ResMut};
-use bevy_time::Time;
 use glam::Vec3;
 use model::ModelVertex;
-use std::{collections::HashMap, ops::AddAssign, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 use vulkano::{
     buffer::{
         allocator::{SubbufferAllocator, SubbufferAllocatorCreateInfo},
@@ -50,15 +49,19 @@ use winit::{
 
 use crate::{
     camera::Camera,
-    game::{Game, Keycode, MouseWheelDelta},
+    game::{Assets, Game, Keycode, MouseWheelDelta},
     game_object::GameObject,
     model::Model,
+    render_ctx::{RenderContext, RenderContextT},
+    world_renderer::{world_fs, world_vs, WorldRenderer},
 };
 
 mod camera;
 mod game;
 mod game_object;
 mod model;
+mod render_ctx;
+mod world_renderer;
 
 type ModelHandle = &'static str;
 
@@ -167,16 +170,8 @@ fn main() {
 
     let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
-    let uniform_buffer = SubbufferAllocator::new(
-        memory_allocator.clone(),
-        SubbufferAllocatorCreateInfo {
-            buffer_usage: BufferUsage::UNIFORM_BUFFER,
-            ..Default::default()
-        },
-    );
-
-    let vs = vs::load(device.clone()).unwrap();
-    let fs = fs::load(device.clone()).unwrap();
+    let world_vs_ref = world_vs::load(device.clone()).unwrap();
+    let world_fs_ref = world_fs::load(device.clone()).unwrap();
 
     let render_pass = vulkano::single_pass_renderpass!(device.clone(),
         attachments: {
@@ -200,31 +195,36 @@ fn main() {
     )
     .unwrap();
 
-    let (mut pipeline, mut framebuffers) =
-        window_size_dependent_setup(&memory_allocator, &vs, &fs, &images, render_pass.clone());
+    let mut world_r = WorldRenderer::new(
+        memory_allocator.clone(),
+        &images,
+        render_pass.clone(),
+        &world_vs_ref,
+        &world_fs_ref,
+    );
+
     let mut recreate_swapchain = false;
 
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
-    let descriptor_set_allocator = StandardDescriptorSetAllocator::new(device.clone());
+    let descriptor_set_allocator = Arc::new(StandardDescriptorSetAllocator::new(device.clone()));
     let command_buffer_allocator =
         StandardCommandBufferAllocator::new(device.clone(), Default::default());
 
     let mut game = Game::new();
+    let allocator_cl = memory_allocator.clone();
+    game.add_startup_system(move |mut commands: Commands, mut assets: ResMut<Assets>| {
+        let teapot_handle = "assets/teapot.obj";
+        let quad_handle = "assets/quad.obj";
+        assets.map.insert(
+            teapot_handle,
+            Model::from_obj_path(allocator_cl.clone(), teapot_handle),
+        );
+        assets.map.insert(
+            quad_handle,
+            Model::from_obj_path(allocator_cl.clone(), quad_handle),
+        );
 
-    let mut assets = HashMap::<ModelHandle, Model>::new();
-    let teapot_handle = "assets/teapot.obj";
-    let quad_handle = "assets/quad.obj";
-    assets.insert(
-        teapot_handle,
-        Model::from_obj_path(&memory_allocator, teapot_handle),
-    );
-    assets.insert(
-        quad_handle,
-        Model::from_obj_path(&memory_allocator, quad_handle),
-    );
-
-    game.add_startup_system(|mut commands: Commands| {
         let mut obj = GameObject::new();
         obj.transform.translation = Vec3::new(-0.7, -0.3, 0.0);
         obj.transform.scale = Vec3::splat(0.2);
@@ -318,7 +318,7 @@ fn main() {
             game.handle_keyboard_events(input);
         }
         Event::WindowEvent {
-            event: WindowEvent::MouseWheel { delta, phase, .. },
+            event: WindowEvent::MouseWheel { delta, .. },
             ..
         } => {
             game.handle_mouse_wheel_events(delta);
@@ -343,50 +343,18 @@ fn main() {
                 };
 
                 swapchain = new_swapchain;
-                let (new_pipeline, new_framebuffers) = window_size_dependent_setup(
-                    &memory_allocator,
-                    &vs,
-                    &fs,
+                world_r = WorldRenderer::new(
+                    memory_allocator.clone(),
                     &new_images,
                     render_pass.clone(),
+                    &world_vs_ref,
+                    &world_fs_ref,
                 );
-                pipeline = new_pipeline;
-                framebuffers = new_framebuffers;
+
+                // pipeline = new_pipeline;
+                // framebuffers = new_framebuffers;
                 recreate_swapchain = false;
             }
-
-            game.run();
-
-            let mut camera = game.world().query::<&mut Camera>().single_mut(game.world());
-
-            let uniform_buffer_subbuffer = {
-                let aspect_ratio =
-                    swapchain.image_extent()[0] as f32 / swapchain.image_extent()[1] as f32;
-                camera.calc_perspective_projection(aspect_ratio);
-
-                let projection_view = camera.calc_perspective_projection(aspect_ratio)
-                    * camera.calc_view_direction(Vec3::new(0.0, -1.0, 0.0));
-
-                let uniform_data = vs::Data {
-                    projectionView: projection_view.to_cols_array_2d(),
-                    ambientLightColor: [1.0, 1.0, 1.0, 0.2],
-                    lightPosition: Vec3::splat(-1.0).to_array().into(),
-                    lightColor: [1.0, 1.0, 1.0, 1.0],
-                };
-
-                let subbuffer = uniform_buffer.allocate_sized().unwrap();
-                *subbuffer.write().unwrap() = uniform_data;
-
-                subbuffer
-            };
-
-            let layout = pipeline.layout().set_layouts().get(0).unwrap();
-            let set = PersistentDescriptorSet::new(
-                &descriptor_set_allocator,
-                layout.clone(),
-                [WriteDescriptorSet::buffer(0, uniform_buffer_subbuffer)],
-            )
-            .unwrap();
 
             let (image_index, suboptimal, acquire_future) =
                 match acquire_next_image(swapchain.clone(), None) {
@@ -409,53 +377,86 @@ fn main() {
             )
             .unwrap();
 
-            builder
-                .begin_render_pass(
-                    RenderPassBeginInfo {
-                        clear_values: vec![Some([0.1, 0.1, 0.1, 1.0].into()), Some(1f32.into())],
-                        ..RenderPassBeginInfo::framebuffer(
-                            framebuffers[image_index as usize].clone(),
-                        )
-                    },
-                    SubpassContents::Inline,
-                )
-                .unwrap()
-                .bind_pipeline_graphics(pipeline.clone())
-                .bind_descriptor_sets(
-                    PipelineBindPoint::Graphics,
-                    pipeline.layout().clone(),
-                    0,
-                    set,
-                );
+            game.run();
 
-            for obj in game.world().query::<&GameObject>().iter(game.world()) {
-                let model_matrix = obj.transform.mat4();
-                let push_constants = vs::Push {
-                    modelMatrix: model_matrix.to_cols_array_2d(),
-                    normalMatrix: obj.transform.normal_matrix().to_cols_array_2d(),
-                };
+            world_r.render(
+                &mut game,
+                &swapchain,
+                &mut builder,
+                image_index as usize,
+                descriptor_set_allocator.clone(),
+            );
+            // for p in render_contexts.iter_mut() {
+            //     p.render(&mut builder, image_index as usize, |ctx, builder| {
+            //         let mut camera = game.world().query::<&mut Camera>().single_mut(game.world());
+            //         let uniform_buffer_subbuffer = {
+            //             let aspect_ratio =
+            //                 swapchain.image_extent()[0] as f32 / swapchain.image_extent()[1] as f32;
 
-                let model_handle = if let Some(model_handle) = obj.model {
-                    model_handle
-                } else {
-                    continue;
-                };
+            //             let uniform_data = vs::Data {
+            //                 projection: camera
+            //                     .calc_perspective_projection(aspect_ratio)
+            //                     .to_cols_array_2d(),
+            //                 view: camera
+            //                     .calc_view_direction(Vec3::new(0.0, -1.0, 0.0))
+            //                     .to_cols_array_2d(),
+            //                 ambientLightColor: [1.0, 1.0, 1.0, 0.2],
+            //                 lightPosition: Vec3::new(-1.0, -1.0, -1.0).to_array().into(),
+            //                 lightColor: [1.0, 1.0, 1.0, 1.0],
+            //             };
 
-                let model = assets.get(model_handle).unwrap();
-                // this should be moved to handles
-                let vertex_buffer = &model.vertex_buffer;
-                let index_buffer = &model.index_buffer.to_owned().unwrap();
+            //             let subbuffer = uniform_buffer.allocate_sized().unwrap();
+            //             *subbuffer.write().unwrap() = uniform_data;
 
-                builder
-                    .bind_vertex_buffers(0, vertex_buffer.clone())
-                    .bind_index_buffer(index_buffer.clone())
-                    .push_constants(pipeline.layout().clone(), 0, push_constants);
-                builder
-                    .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
-                    .unwrap();
-            }
+            //             subbuffer
+            //         };
 
-            builder.end_render_pass().unwrap();
+            //         let layout = ctx.pipeline.layout().set_layouts().get(0).unwrap();
+            //         let set = PersistentDescriptorSet::new(
+            //             &descriptor_set_allocator,
+            //             layout.clone(),
+            //             [WriteDescriptorSet::buffer(0, uniform_buffer_subbuffer)],
+            //         )
+            //         .unwrap();
+
+            //         builder
+            //             .bind_pipeline_graphics(ctx.pipeline.clone())
+            //             .bind_descriptor_sets(
+            //                 PipelineBindPoint::Graphics,
+            //                 ctx.pipeline.layout().clone(),
+            //                 0,
+            //                 set,
+            //             );
+
+            //         for obj in game.world().query::<&GameObject>().iter(game.world()) {
+            //             let model_matrix = obj.transform.mat4();
+            //             let push_constants = vs::Push {
+            //                 modelMatrix: model_matrix.to_cols_array_2d(),
+            //                 normalMatrix: obj.transform.normal_matrix().to_cols_array_2d(),
+            //             };
+
+            //             let model_handle = if let Some(model_handle) = obj.model {
+            //                 model_handle
+            //             } else {
+            //                 continue;
+            //             };
+
+            //             let model = assets.get(model_handle).unwrap();
+            //             // this should be moved to handles
+            //             let vertex_buffer = &model.vertex_buffer;
+            //             let index_buffer = &model.index_buffer.to_owned().unwrap();
+
+            //             builder
+            //                 .bind_vertex_buffers(0, vertex_buffer.clone())
+            //                 .bind_index_buffer(index_buffer.clone())
+            //                 .push_constants(ctx.pipeline.layout().clone(), 0, push_constants);
+            //             builder
+            //                 .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
+            //                 .unwrap();
+            //         }
+            //     });
+            // }
+
             let command_buffer = builder.build().unwrap();
 
             let future = previous_frame_end
@@ -540,18 +541,4 @@ fn window_size_dependent_setup(
         .unwrap();
 
     (pipeline, framebuffers)
-}
-
-mod vs {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        path: "src/shader.vert",
-    }
-}
-
-mod fs {
-    vulkano_shaders::shader! {
-        ty: "fragment",
-        path: "src/shader.frag",
-    }
 }
