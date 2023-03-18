@@ -5,6 +5,7 @@ use std::sync::Arc;
 use vulkano::{
     command_buffer::{
         allocator::StandardCommandBufferAllocator, AutoCommandBufferBuilder, CommandBufferUsage,
+        RenderPassBeginInfo, SubpassContents,
     },
     descriptor_set::allocator::StandardDescriptorSetAllocator,
     device::{
@@ -34,7 +35,8 @@ use crate::{
     game::{Assets, Game, Keycode, MouseWheelDelta},
     game_object::GameObject,
     model::Model,
-    render_ctx::RenderContextT,
+    point_light_renderer::{point_fs, point_vs, PointLightRenderer},
+    render_ctx::RenderContext,
     world_renderer::{world_fs, world_vs, WorldRenderer},
 };
 
@@ -42,6 +44,7 @@ mod camera;
 mod game;
 mod game_object;
 mod model;
+mod point_light_renderer;
 mod render_ctx;
 mod world_renderer;
 
@@ -152,9 +155,6 @@ fn main() {
 
     let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
-    let world_vs_ref = world_vs::load(device.clone()).unwrap();
-    let world_fs_ref = world_fs::load(device.clone()).unwrap();
-
     let render_pass = vulkano::single_pass_renderpass!(device.clone(),
         attachments: {
             color: {
@@ -177,12 +177,24 @@ fn main() {
     )
     .unwrap();
 
+    let world_vs_ref = world_vs::load(device.clone()).unwrap();
+    let world_fs_ref = world_fs::load(device.clone()).unwrap();
     let mut world_r = WorldRenderer::new(
         memory_allocator.clone(),
         &images,
         render_pass.clone(),
         &world_vs_ref,
         &world_fs_ref,
+    );
+
+    let point_vs_ref = point_vs::load(device.clone()).unwrap();
+    let point_fs_ref = point_fs::load(device.clone()).unwrap();
+    let mut point_r = PointLightRenderer::new(
+        memory_allocator.clone(),
+        &images,
+        render_pass.clone(),
+        &point_vs_ref,
+        &point_fs_ref,
     );
 
     let mut recreate_swapchain = false;
@@ -332,6 +344,13 @@ fn main() {
                     &world_vs_ref,
                     &world_fs_ref,
                 );
+                point_r = PointLightRenderer::new(
+                    memory_allocator.clone(),
+                    &new_images,
+                    render_pass.clone(),
+                    &point_vs_ref,
+                    &point_fs_ref,
+                );
 
                 // pipeline = new_pipeline;
                 // framebuffers = new_framebuffers;
@@ -361,13 +380,33 @@ fn main() {
 
             game.run();
 
+            builder
+                .begin_render_pass(
+                    RenderPassBeginInfo {
+                        clear_values: vec![Some([0.1, 0.1, 0.1, 1.0].into()), Some(1f32.into())],
+                        ..RenderPassBeginInfo::framebuffer(
+                            world_r.framebuffers[image_index as usize].clone(),
+                        )
+                    },
+                    SubpassContents::Inline,
+                )
+                .unwrap();
+
             world_r.render(
                 &mut game,
                 &swapchain,
                 &mut builder,
-                image_index as usize,
                 descriptor_set_allocator.clone(),
             );
+
+            point_r.render(
+                &mut game,
+                &swapchain,
+                &mut builder,
+                descriptor_set_allocator.clone(),
+            );
+
+            builder.end_render_pass().unwrap();
 
             let command_buffer = builder.build().unwrap();
 

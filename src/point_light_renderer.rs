@@ -18,7 +18,7 @@ use vulkano::{
         graphics::{
             depth_stencil::DepthStencilState,
             input_assembly::InputAssemblyState,
-            vertex_input::Vertex,
+            vertex_input::VertexInputState,
             viewport::{Viewport, ViewportState},
         },
         GraphicsPipeline, Pipeline, PipelineBindPoint,
@@ -26,21 +26,15 @@ use vulkano::{
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
 };
 
-use crate::{
-    camera::Camera,
-    game::{Assets, Game},
-    game_object::GameObject,
-    model::ModelVertex,
-    render_ctx::RenderContext,
-};
+use crate::{camera::Camera, game::Game, render_ctx::RenderContext};
 
-pub struct WorldRenderer {
+pub struct PointLightRenderer {
     pub pipeline: Arc<GraphicsPipeline>,
     pub framebuffers: Vec<Arc<Framebuffer>>,
     pub uniform_buffer: SubbufferAllocator,
 }
 
-impl RenderContext for WorldRenderer {
+impl RenderContext for PointLightRenderer {
     fn new(
         memory_allocator: Arc<StandardMemoryAllocator>,
         images: &[Arc<SwapchainImage>],
@@ -75,7 +69,7 @@ impl RenderContext for WorldRenderer {
         // driver to optimize things, at the cost of slower window resizes.
         // https://computergraphics.stackexchange.com/questions/5742/vulkan-best-way-of-updating-pipeline-viewport
         let pipeline = GraphicsPipeline::start()
-            .vertex_input_state(ModelVertex::per_vertex())
+            .vertex_input_state(VertexInputState::default())
             .vertex_shader(vertex_shader.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
             .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([
@@ -118,7 +112,7 @@ impl RenderContext for WorldRenderer {
             let aspect_ratio =
                 swapchain.image_extent()[0] as f32 / swapchain.image_extent()[1] as f32;
 
-            let uniform_data = world_vs::Data {
+            let uniform_data = point_vs::Data {
                 projection: camera
                     .calc_perspective_projection(aspect_ratio)
                     .to_cols_array_2d(),
@@ -153,46 +147,20 @@ impl RenderContext for WorldRenderer {
                 set,
             );
 
-        let world = game.world();
-        for obj in world.query::<&GameObject>().iter(world) {
-            let model_matrix = obj.transform.mat4();
-            let push_constants = world_vs::Push {
-                modelMatrix: model_matrix.to_cols_array_2d(),
-                normalMatrix: obj.transform.normal_matrix().to_cols_array_2d(),
-            };
-
-            let model_handle = if let Some(model_handle) = obj.model {
-                model_handle
-            } else {
-                continue;
-            };
-            let assets = world.resource::<Assets>();
-            let model = assets.map.get(model_handle).unwrap();
-            // this should be moved to handles
-            let vertex_buffer = &model.vertex_buffer;
-            let index_buffer = &model.index_buffer.to_owned().unwrap();
-
-            builder
-                .bind_vertex_buffers(0, vertex_buffer.clone())
-                .bind_index_buffer(index_buffer.clone())
-                .push_constants(self.pipeline.layout().clone(), 0, push_constants);
-            builder
-                .draw_indexed(index_buffer.len() as u32, 1, 0, 0, 0)
-                .unwrap();
-        }
+        builder.draw(6, 1, 0, 0).unwrap();
     }
 }
 
-pub mod world_vs {
+pub mod point_vs {
     vulkano_shaders::shader! {
         ty: "vertex",
-        path: "src/shader.vert",
+        path: "src/point_light.vert",
     }
 }
 
-pub mod world_fs {
+pub mod point_fs {
     vulkano_shaders::shader! {
         ty: "fragment",
-        path: "src/shader.frag",
+        path: "src/point_light.frag",
     }
 }
